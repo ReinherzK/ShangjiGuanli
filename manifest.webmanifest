@@ -3,7 +3,7 @@
   "short_name": "客户管理",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
+  "display": "browser",
   "background_color": "#f2f2f7",
   "theme_color": "#2f6fed",
   "lang": "zh-CN",

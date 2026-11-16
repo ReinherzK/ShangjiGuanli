@@ -118,8 +118,22 @@
     input.click();
   }
 
+  // 从旧的“全屏”主屏幕图标打开：iOS 会把微软登录转到 Safari，登录结果回不到这里
+  const isStandalone = () =>
+    window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+
   // 未登录或登录失效时，在首页提示登录
   function loginBanner() {
+    if (isStandalone()) {
+      const n = Store.all().length;
+      return `<div class="banner">
+        <div>📱 当前是旧版全屏图标，iPhone 上无法在这里保持微软登录。请：<br>
+        ${n ? `① 先点下方按钮导出这里的 ${n} 位客户（存储到“文件”）<br>` : ''}
+        ${n ? '②' : '①'} 在 Safari 中打开 reinherzk.github.io/ShangjiGuanli/ → 登录 → 分享 → 添加到主屏幕，<b>关闭“作为网页 App 打开”</b>（如有此开关）<br>
+        ${n ? '③ 在新图标的“设置 › 从备份文件导入”中导入，' : '②'} 然后删除这个旧图标</div>
+        ${n ? '<button class="banner-btn" data-export>导出客户数据</button>' : ''}
+      </div>`;
+    }
     if (!Auth.configured()) return '';
     const relogin = Auth.hasSession() && (Auth.needsRelogin() || Store.status().state === 'relogin');
     if (Auth.hasSession() && !relogin) return '';
@@ -133,6 +147,7 @@
   }
   function bindBanner() {
     $$('[data-login]', view).forEach((b) => b.onclick = doLogin);
+    $$('[data-export]', view).forEach((b) => b.onclick = exportToFile);
   }
 
   // ---------- list ----------
@@ -454,7 +469,7 @@
 
   function installHint() {
     return `<div class="section-title">添加到主屏幕</div>
-      <div class="hint">在 iPhone 的 Safari 中打开本页 → 点底部“分享”按钮 → “添加到主屏幕”。之后从主屏幕图标打开即可全屏使用，离线也能查看和修改，联网后自动同步。</div>`;
+      <div class="hint">在 iPhone 的 Safari 中打开本页 → 点“分享” → “添加到主屏幕”。如果出现“作为网页 App 打开”开关，请<b>关闭</b>它，图标会直接在 Safari 中打开（这样微软登录才能保持）。离线也能查看和修改，联网后自动同步。</div>`;
   }
 
   // ---------- router ----------
