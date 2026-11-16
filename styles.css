@@ -215,7 +215,6 @@ button { font: inherit; color: inherit; }
   background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
 }
 .seg button { flex: 1; }
-#modeSeg button { padding: 8px 6px; }
 
 .toast {
   position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 84px); transform: translateX(-50%);

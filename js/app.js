@@ -75,9 +75,9 @@
     dot.title = s.message || (s.state === 'local' ? '仅本机（未登录 OneDrive）' : '');
   }
 
-  // ---------- 免登录模式：备份 / 恢复 ----------
-  // 通过系统分享菜单保存 JSON 文件：iPhone 上选“存储到文件” → OneDrive
-  async function backupToFile() {
+  // ---------- 备用：导出 / 导入备份文件 ----------
+  // iPhone 上通过系统分享菜单保存（可选“存储到文件”）；电脑上直接下载
+  async function exportToFile() {
     const name = `客户数据-${today()}.json`;
     const text = JSON.stringify(Store.exportData(), null, 2);
     for (const type of ['application/json', 'text/plain']) {
@@ -85,21 +85,18 @@
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({ files: [file] });
-          Store.markExported();
-          toast('已备份');
+          toast('已导出');
         } catch (e) {
-          if (e.name !== 'AbortError') toast('备份失败：' + e.message);
+          if (e.name !== 'AbortError') toast('导出失败：' + e.message);
         }
         return;
       }
     }
-    // 不支持分享文件的浏览器（如电脑）→ 直接下载
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     a.download = name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    Store.markExported();
     toast('已下载备份文件');
   }
 
@@ -115,24 +112,27 @@
         const json = JSON.parse(await f.text());
         if (!Array.isArray(json.customers)) throw new Error('文件格式不正确');
         Store.replaceAll(json);
-        Store.markExported(); // 刚从备份恢复，视为已备份
-        toast(`已恢复 ${json.customers.length} 位客户`);
-      } catch (err) { toast('恢复失败：' + err.message, 3500); }
+        toast(`已导入 ${json.customers.length} 位客户`);
+      } catch (err) { toast('导入失败：' + err.message, 3500); }
     };
     input.click();
   }
 
-  function backupBanner() {
-    if (!Store.needsBackup()) return '';
-    const m = Store.meta();
-    const since = m.lastExport ? `上次备份于 ${new Date(m.lastExport).toLocaleDateString('zh-CN')}，` : '还没有备份过，';
+  // 未登录或登录失效时，在首页提示登录
+  function loginBanner() {
+    if (!Auth.configured()) return '';
+    const relogin = Auth.hasSession() && (Auth.needsRelogin() || Store.status().state === 'relogin');
+    if (Auth.hasSession() && !relogin) return '';
     return `<div class="banner">
-      <div>💾 ${since}有新的修改只保存在这台手机上。</div>
-      <button class="banner-btn" data-backup>立即备份到 OneDrive</button>
+      <div>☁️ ${relogin ? '登录已过期' : '尚未登录'}，新的修改暂存在这台手机上，登录后会自动同步到 OneDrive。</div>
+      <button class="banner-btn" data-login>登录微软账号</button>
     </div>`;
   }
+  async function doLogin() {
+    try { await Auth.login(); } catch (e) { toast(e.message); }
+  }
   function bindBanner() {
-    $$('[data-backup]', view).forEach((b) => b.onclick = backupToFile);
+    $$('[data-login]', view).forEach((b) => b.onclick = doLogin);
   }
 
   // ---------- list ----------
@@ -158,7 +158,7 @@
     Store.all().forEach((c) => { if (counts[c.status] != null) counts[c.status]++; });
 
     view.innerHTML = `
-      ${backupBanner()}
+      ${loginBanner()}
       <input class="search" id="q" type="search" placeholder="搜索姓名、公司、电话、标签、备注" value="${esc(ui.query)}" autocomplete="off">
       <div class="chips">
         ${['全部', ...STATUSES].map((s) => `<button class="chip ${ui.status === s ? 'active' : ''}" data-s="${s}">${s}${s !== '全部' ? ` ${counts[s]}` : ''}</button>`).join('')}
@@ -221,7 +221,7 @@
 
     const body = section('已逾期', overdue) + section('今天', todayList) + section('未来 7 天', soon);
     view.innerHTML = `
-      ${backupBanner()}
+      ${loginBanner()}
       <div class="stats">${stats}</div>
       ${body || '<div class="empty"><div class="big">✅</div>近期没有需要跟进的客户</div>'}`;
     bindBanner();
@@ -404,40 +404,10 @@
     const configured = Auth.configured();
     const signedIn = Auth.hasSession();
     const relogin = Auth.needsRelogin() || s.state === 'relogin';
-    const mode = Store.mode();
-
-    const modeSeg = `
-      <div class="section-title">使用方式</div>
-      <div class="group form"><div class="field"><div class="seg" id="modeSeg">
-        <button type="button" data-m="local" class="${mode === 'local' ? 'on' : ''}">免登录（手动备份）</button>
-        <button type="button" data-m="cloud" class="${mode === 'cloud' ? 'on' : ''}">登录自动同步</button>
-      </div></div></div>`;
-
-    if (mode === 'local') {
-      const lastExport = m.lastExport ? new Date(m.lastExport).toLocaleString('zh-CN') : '从未';
-      view.innerHTML = `
-        ${modeSeg}
-        <div class="section-title">备份到 OneDrive</div>
-        <div class="group">
-          <div class="kv"><div class="k">客户数</div><div class="v">${Store.all().length}</div></div>
-          <div class="kv"><div class="k">上次备份</div><div class="v">${lastExport}</div></div>
-          <div class="kv"><div class="k">状态</div><div class="v">${m.exportedSeq === m.seq ? '✅ 已备份最新数据' : '⚠️ 有修改尚未备份'}</div></div>
-        </div>
-        <button class="btn" id="backupBtn">备份到 OneDrive</button>
-        <button class="btn secondary" id="restoreBtn">从 OneDrive 恢复</button>
-        <div class="hint"><b>备份：</b>点按钮后在弹出的菜单中选“存储到文件” → 选择 OneDrive 中的文件夹 → 存储。文件名带日期，会保留历史版本。</div>
-        <div class="hint"><b>恢复 / 换手机：</b>点“从 OneDrive 恢复”，在“浏览”中进入 OneDrive，选最新的“客户数据-日期.json”。恢复是合并方式，不会删除手机上已有的客户。</div>
-        <div class="hint">超过 ${3} 天有修改未备份时，首页会出现提醒。</div>
-        ${installHint()}`;
-      bindModeSeg();
-      $('#backupBtn').onclick = backupToFile;
-      $('#restoreBtn').onclick = restoreFromFile;
-      return;
-    }
 
     let account;
     if (!configured) {
-      account = `<div class="kv"><div class="v">⚠️ 尚未配置微软应用 clientId（见 README “登录自动同步”一节）。配置之前请使用免登录模式。</div></div>`;
+      account = `<div class="kv"><div class="v">⚠️ 尚未配置微软应用 clientId（见 README 第 2 步）。数据暂存在本机。</div></div>`;
     } else if (!signedIn) {
       account = `<div class="kv"><div class="v">未登录。登录后数据会自动同步到你的 OneDrive。</div></div>`;
     } else {
@@ -449,7 +419,6 @@
     }
 
     view.innerHTML = `
-      ${modeSeg}
       <div class="section-title">OneDrive 同步</div>
       <div class="group">${account}</div>
       ${configured && (!signedIn || relogin) ? '<button class="btn" id="loginBtn">登录微软账号</button>' : ''}
@@ -461,14 +430,16 @@
         <div class="kv"><div class="k">客户数</div><div class="v">${Store.all().length}</div></div>
         <div class="kv"><div class="k">待上传</div><div class="v">${m.dirty ? '有本地修改未同步' : '无'}</div></div>
       </div>
+      <div class="hint">每天首次同步时，会在 OneDrive 的 backups 文件夹自动保存一份当日备份。</div>
+
+      <div class="section-title">备用</div>
       <button class="btn secondary" id="exportBtn">导出备份文件</button>
       <button class="btn secondary" id="importBtn">从备份文件导入（合并）</button>
-      <div class="hint">每天首次同步时，会在 OneDrive 的 backups 文件夹自动保存一份当日备份。</div>
+      <div class="hint">万一无法登录时使用。导入采用合并方式，同一客户以较新的修改为准，不会删除已有客户。</div>
       ${installHint()}`;
 
-    bindModeSeg();
     const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
-    on('#loginBtn', async () => { try { await Auth.login(); } catch (e) { toast(e.message); } });
+    on('#loginBtn', doLogin);
     on('#syncBtn', () => Store.sync());
     on('#logoutBtn', () => {
       if (!confirm('退出登录？')) return;
@@ -477,22 +448,13 @@
       toast('已退出');
       render();
     });
-    on('#exportBtn', backupToFile);
+    on('#exportBtn', exportToFile);
     on('#importBtn', restoreFromFile);
   }
 
   function installHint() {
     return `<div class="section-title">添加到主屏幕</div>
-      <div class="hint">在 iPhone 的 Safari 中打开本页 → 点底部“分享”按钮 → “添加到主屏幕”。之后从主屏幕图标打开即可全屏使用，离线也能查看和修改。</div>
-      <div class="hint">⚠️ 删除主屏幕图标或清除 Safari 网站数据会清空手机上的数据，请先备份。</div>`;
-  }
-
-  function bindModeSeg() {
-    $$('#modeSeg button').forEach((b) => b.onclick = () => {
-      if (b.dataset.m === Store.mode()) return;
-      Store.setMode(b.dataset.m);
-      renderSettings();
-    });
+      <div class="hint">在 iPhone 的 Safari 中打开本页 → 点底部“分享”按钮 → “添加到主屏幕”。之后从主屏幕图标打开即可全屏使用，离线也能查看和修改，联网后自动同步。</div>`;
   }
 
   // ---------- router ----------
@@ -532,9 +494,9 @@
     (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && document.activeElement.id !== 'q') ||
     !!($('#fuForm [name=content]') && $('#fuForm [name=content]').value.trim());
 
-  // 登录模式下，令牌过期时自动续登录（跳转到微软后立即跳回，无需输入）
+  // 令牌过期时自动续登录（跳转到微软后立即跳回，无需输入）
   async function ensureSession() {
-    if (Store.mode() !== 'cloud' || !Auth.configured() || !Auth.hasSession() || !navigator.onLine) return false;
+    if (!Auth.configured() || !Auth.hasSession() || !navigator.onLine) return false;
     if (await Auth.getToken()) return false;
     if (isEditing()) return false; // 正在输入时不跳转，避免丢失未保存内容
     return Auth.trySilent();
@@ -551,7 +513,7 @@
     try {
       if (await Auth.handleRedirect()) {
         returned = true;
-        if (Store.mode() !== 'cloud') { Store.setMode('cloud'); toast('登录成功，正在同步…'); }
+        if (!Auth.lastWasSilent()) toast('登录成功，正在同步…');
       }
     } catch (e) {
       toast(e.message, 4000);

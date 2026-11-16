@@ -98,12 +98,14 @@ window.Auth = (() => {
     });
     storeTokens(json, null);
     localStorage.removeItem(SILENT_KEY);
+    lastWasSilent = !!pkce.silent;
     return true;
   }
 
   // 自动续登录：同一台设备 10 分钟内最多尝试一次，避免反复跳转
   const SILENT_KEY = 'crm.silentAt';
   let silentFailed = false;
+  let lastWasSilent = false;
   async function trySilent() {
     if (!configured() || !load()) return false;
     const last = +localStorage.getItem(SILENT_KEY) || 0;
@@ -144,6 +146,7 @@ window.Auth = (() => {
     getToken,
     trySilent,
     silentFailed: () => silentFailed,
+    lastWasSilent: () => lastWasSilent,
     user: () => (load() || {}).user || null,
     hasSession: () => !!load(),
     needsRelogin: () => { const t = load(); return !!t && (t.expired || (!t.refresh && t.exp < Date.now())); }

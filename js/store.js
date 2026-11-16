@@ -115,32 +115,8 @@ window.Store = (() => {
     timer = setTimeout(() => sync(), delay);
   }
 
-  // 使用方式：'local' = 免登录（手动备份到 OneDrive）；'cloud' = 登录后自动同步
-  const MODE_KEY = 'crm.mode';
-  const getMode = () => localStorage.getItem(MODE_KEY) || 'local';
-  function setMode(m) {
-    localStorage.setItem(MODE_KEY, m);
-    emit();
-    if (m === 'cloud') scheduleSync(100); else setStatus('local');
-  }
-
-  // 免登录模式：记录上次手动备份
-  function markExported() {
-    meta.lastExport = now();
-    meta.exportedSeq = meta.seq;
-    persist();
-    emit();
-  }
-  const BACKUP_REMIND_DAYS = 3;
-  function needsBackup() {
-    if (getMode() !== 'local' || !all().length) return false;
-    if (meta.exportedSeq === meta.seq) return false; // 备份后没有新修改
-    if (!meta.lastExport) return true;
-    return Date.now() - new Date(meta.lastExport).getTime() > BACKUP_REMIND_DAYS * 86400000;
-  }
-
   async function sync() {
-    if (getMode() !== 'cloud' || !Auth.configured() || !Auth.hasSession()) { setStatus('local'); return; }
+    if (!Auth.configured() || !Auth.hasSession()) { setStatus('local', '未登录，数据暂存在本机'); return; }
     if (!navigator.onLine) { setStatus('offline', '离线，联网后自动同步'); return; }
     if (syncing) { again = true; return; }
     syncing = true;
@@ -228,7 +204,6 @@ window.Store = (() => {
   return {
     all, get, upsert, remove, addFollowUp, removeFollowUp, replaceAll, resetLocal,
     sync, scheduleSync,
-    mode: getMode, setMode, markExported, needsBackup,
     exportData: () => ({ version: 1, exportedAt: now(), customers: all() }),
     status: () => status,
     meta: () => meta,
