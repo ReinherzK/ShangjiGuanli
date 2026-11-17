@@ -3,8 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#00503C">
   <!-- 在 Safari 中打开（不使用全屏模式）：iOS 全屏网页应用登录微软账号时，
        登录结果会落在 Safari 而回不到应用，所以这里刻意不声明 apple-mobile-web-app-capable -->
   <meta name="apple-mobile-web-app-title" content="客户管理">
@@ -13,24 +12,29 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&family=STIX+Two+Text:wght@500;600;700&family=Noto+Serif+SC:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <button class="topbar-btn" id="backBtn" hidden aria-label="返回">‹ 返回</button>
-    <h1 id="title">客户</h1>
-    <div class="topbar-right">
-      <span id="syncDot" class="sync-dot" title="同步状态"></span>
-      <button class="topbar-btn" id="actionBtn" hidden></button>
-    </div>
-  </header>
+  <header class="topbar" id="topbar"></header>
 
   <main id="view" class="view"></main>
 
-  <nav class="tabbar">
-    <a href="#/" data-tab="list"><span class="ti">👥</span><span>客户</span></a>
-    <a href="#/todo" data-tab="todo"><span class="ti">⏰</span><span>待跟进</span><b id="todoBadge" class="badge" hidden></b></a>
-    <a href="#/settings" data-tab="settings"><span class="ti">⚙️</span><span>设置</span></a>
+  <nav class="tabbar" aria-label="主导航">
+    <a href="#/" data-tab="list">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="fillable" cx="9" cy="7" r="4"/><path class="fillable" d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2z"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>商机</span><b id="todoBadge" class="badge" hidden></b>
+    </a>
+    <a href="#/convert" data-tab="convert">
+      <svg class="trend" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      <span>转化</span>
+    </a>
+    <a href="#/me" data-tab="me">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fillable" d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2z"/><circle class="fillable" cx="12" cy="7" r="4"/></svg>
+      <span>我的</span>
+    </a>
   </nav>
 
   <div id="toast" class="toast" hidden></div>
