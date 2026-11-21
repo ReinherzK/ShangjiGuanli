@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = '9';
+  const APP_VERSION = '10';
   const STATUSES = ['线索', '商机', '面访', '建联', '转化', '成交', '流失'];
   const LEVELS = ['A', 'B', 'C'];
   const NEXT_OPTIONS = [['明天', 1], ['3天后', 3], ['1周后', 7], ['1个月后', 30], ['不设置', null]];
@@ -42,7 +42,7 @@
 
   // 默认卡通头像（未上传头像时使用）
   const DEFAULT_AVATAR = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" fill="#F1EEE9"/><path d="M10 64c0-12 10-19 22-19s22 7 22 19z" fill="#00503C"/><rect x="27" y="36" width="10" height="10" rx="3" fill="#E9B98F"/><path d="M26.5 45l5.5 6 5.5-6z" fill="#FFFFFF"/><circle cx="20.5" cy="28" r="3" fill="#EDBB92"/><circle cx="43.5" cy="28" r="3" fill="#EDBB92"/><ellipse cx="32" cy="27" rx="11.5" ry="12.5" fill="#F3CBA5"/><path d="M20.3 25.5C20 16.5 25.5 12 32.5 12S44.2 16 43.8 24.5c-3-4.2-8-6-14-5-4.2.8-7 3-9.5 6z" fill="#2E2A27"/><circle cx="27.6" cy="28.5" r="1.5" fill="#2E2A27"/><circle cx="36.4" cy="28.5" r="1.5" fill="#2E2A27"/><path d="M28.6 33.2q3.4 2.8 6.8 0" stroke="#B0704A" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
-  const avatar = (size, c) => `<span class="avatar" style="width:${size}px;height:${size}px">${imageSrc(profilePhoto(c)) ? photoImg(profilePhoto(c), '') : DEFAULT_AVATAR}</span>`;
+  const avatar = (size, c) => `<span class="avatar" style="width:${size}px;height:${size}px">${avatarImage(c)}</span>`;
   // 带圆环的头像：late=逾期(红土橙)，today=今天(绿)，其他=灰
   const ringAvatar = (size, kind, c) => {
     const inner = size - 6;
@@ -300,7 +300,98 @@
 
   const photoFrom = (src) => ({ id: crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2), src });
   const photoImg = (src, alt) => `<img src="${imageSrc(src)}" alt="${esc(alt)}">`;
-  const profilePhoto = (c) => (c?.photos || []).find((photo) => photo.id === c.avatarId)?.src;
+  const avatarPhoto = (c) => (c?.photos || []).find((photo) => photo.id === c.avatarId);
+  const validCrop = (crop) => crop && [crop.x, crop.y, crop.width, crop.height].every(Number.isFinite) &&
+    crop.width > 0 && crop.height > 0 && crop.x >= 0 && crop.y >= 0 &&
+    crop.x + crop.width <= 1.00001 && crop.y + crop.height <= 1.00001;
+
+  function avatarImage(c) {
+    const photo = avatarPhoto(c);
+    const src = imageSrc(photo?.src);
+    if (!src) return DEFAULT_AVATAR;
+    const crop = c.avatarCrop;
+    if (!validCrop(crop)) return photoImg(src, '');
+    return `<img class="avatar-cropped" src="${src}" alt="" style="width:${100 / crop.width}%;height:${100 / crop.height}%;left:${-100 * crop.x / crop.width}%;top:${-100 * crop.y / crop.height}%">`;
+  }
+
+  function avatarCropGeometry(width, height, zoom, x, y) {
+    const edge = Math.min(width, height) / zoom;
+    const w = edge / width;
+    const h = edge / height;
+    const left = Math.max(0, Math.min(1 - w, x - w / 2));
+    const top = Math.max(0, Math.min(1 - h, y - h / 2));
+    return { x: left, y: top, width: w, height: h };
+  }
+
+  function editAvatar(dialog, photo, savedCrop, onSave) {
+    dialog.innerHTML = `<div class="section-head"><h3>调整头像</h3><button type="button" class="link-btn" data-crop-cancel>取消</button></div>
+      <div class="crop-frame" tabindex="0" aria-label="头像裁剪框，可拖动照片或用方向键调整">
+        <img alt="" draggable="false" class="crop-image">
+      </div>
+      <div class="crop-controls">
+        <label for="avatar-zoom">缩放</label>
+        <input id="avatar-zoom" type="range" min="1" max="4" step="0.01" value="1" disabled>
+        <button class="btn primary" type="button" data-crop-save disabled>保存头像</button>
+      </div>
+      <p class="hint">拖动照片，滑动缩放条调整圆框内的头像。</p>`;
+
+    const frame = $('.crop-frame', dialog);
+    const img = $('.crop-image', dialog);
+    const slider = $('#avatar-zoom', dialog);
+    const save = $('[data-crop-save]', dialog);
+    let crop;
+    let drag;
+    const draw = (zoom, x, y) => {
+      crop = avatarCropGeometry(img.naturalWidth, img.naturalHeight, zoom, x, y);
+      img.style.width = `${100 / crop.width}%`;
+      img.style.height = `${100 / crop.height}%`;
+      img.style.left = `${-100 * crop.x / crop.width}%`;
+      img.style.top = `${-100 * crop.y / crop.height}%`;
+    };
+    const center = () => [crop.x + crop.width / 2, crop.y + crop.height / 2];
+    const move = (dx, dy) => {
+      const [x, y] = center();
+      draw(Number(slider.value), x - dx * crop.width, y - dy * crop.height);
+    };
+    img.onload = () => {
+      if (!dialog.open || !img.isConnected) return;
+      const previous = validCrop(savedCrop);
+      if (previous) slider.value = String(1 / Math.max(savedCrop.width, savedCrop.height));
+      draw(Number(slider.value), previous ? savedCrop.x + savedCrop.width / 2 : 0.5,
+        previous ? savedCrop.y + savedCrop.height / 2 : 0.5);
+      slider.disabled = false;
+      save.disabled = false;
+    };
+    img.onerror = () => {
+      if (dialog.open && img.isConnected) toast('无法打开这张照片');
+    };
+    frame.onpointerdown = (event) => {
+      if (!crop || drag || event.button !== 0) return;
+      event.preventDefault();
+      frame.setPointerCapture(event.pointerId);
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    };
+    frame.onpointermove = (event) => {
+      if (drag?.id !== event.pointerId) return;
+      const size = frame.clientWidth;
+      if (!size) return;
+      move((event.clientX - drag.x) / size, (event.clientY - drag.y) / size);
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+    };
+    frame.onlostpointercapture = () => { drag = null; };
+    frame.onkeydown = (event) => {
+      const direction = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
+      if (!crop || !direction) return;
+      event.preventDefault();
+      move(direction[0] * 0.025, direction[1] * 0.025);
+    };
+    slider.oninput = () => draw(Number(slider.value), ...center());
+    save.onclick = () => { if (crop) onSave(crop); };
+    $('[data-crop-cancel]', dialog).onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+    img.src = photo.src;
+  }
 
   let activePhotoPicker;
 
@@ -370,9 +461,11 @@
     return `<div class="section-head"><h3>相册 <small>${photos.length} 张</small></h3></div>
       <div class="photo-grid">
         ${photos.map((photo, i) => `<div class="album-photo">
-          <button class="photo-tile" data-photo="${i}" aria-label="查看照片 ${i + 1}">${photoImg(photo.src, '')}</button>
-          <button class="link-btn album-avatar" data-avatar="${i}" type="button" ${c.avatarId === photo.id ? 'disabled' : ''}>
-            ${c.avatarId === photo.id ? '当前头像' : '设为头像'}
+          <button class="photo-tile" data-photo="${i}" aria-label="查看照片 ${i + 1}">${photoImg(photo.src, '')}
+            ${c.avatarId === photo.id ? '<span class="current-avatar">当前头像</span>' : ''}
+          </button>
+          <button class="link-btn album-avatar" data-avatar="${i}" type="button">
+            ${c.avatarId === photo.id ? '调整头像' : '设为头像'}
           </button>
         </div>`).join('')}
         <label class="photo-add">＋ 上传照片<input type="file" accept="image/*" id="album-file" multiple></label>
@@ -393,16 +486,25 @@
     const photos = (c.photos || []).filter((photo) => imageSrc(photo.src));
     const setAvatar = (photo) => {
       const current = Store.get(c.id);
-      if (!current?.photos?.some((item) => item.id === photo.id)) {
-        toast('照片已删除');
+      if (!current?.photos?.some((item) => item.id === photo.id && item.src === photo.src)) {
+        toast('照片已删除或已更换');
         if (current) renderDetail(c.id);
         return;
       }
-      if (saveChange(() => Store.upsert({ ...current, avatarId: photo.id }))) {
-        if (dialog.open) dialog.close();
-        renderDetail(c.id);
-        toast('头像已更新');
-      }
+      editAvatar(dialog, photo, current.avatarId === photo.id ? current.avatarCrop : null, (crop) => {
+        const latest = Store.get(c.id);
+        if (!latest?.photos?.some((item) => item.id === photo.id && item.src === photo.src)) {
+          dialog.close();
+          renderDetail(c.id);
+          toast('照片已删除或已更换');
+          return;
+        }
+        if (saveChange(() => Store.upsert({ ...latest, avatarId: photo.id, avatarCrop: crop }))) {
+          dialog.close();
+          renderDetail(c.id);
+          toast('头像已更新');
+        }
+      });
     };
     $$('[data-avatar]', view).forEach((button) => {
       button.onclick = () => setAvatar(photos[Number(button.dataset.avatar)]);
@@ -425,6 +527,7 @@
           const next = {
             ...current,
             avatarId: current.avatarId === photo.id ? '' : current.avatarId,
+            avatarCrop: current.avatarId === photo.id ? undefined : current.avatarCrop,
             photos: (current.photos || []).filter((item) => item.id !== photo.id),
             followUps: (current.followUps || []).map((f) => ({
               ...f, photoIds: f.photoIds?.filter((id) => id !== photo.id)
