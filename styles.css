@@ -273,3 +273,10 @@ label.setting-row { justify-content: space-between; }
 .channel-add { padding: 6px 16px; }
 .channel-add input { flex: 1; }
 #f-channel { flex: 1; }
+
+.album-photo { min-width: 0; }
+.album-photo .photo-tile { display: block; width: 100%; }
+.album-avatar { display: block; width: 100%; min-height: 44px; }
+.album-avatar:disabled { color: var(--muted); cursor: default; }
+.photo-grid { align-items: start; }
+.photo-add:has(input:disabled) { opacity: 0.55; }

@@ -1,5 +1,5 @@
 // 离线缓存：应用外壳缓存优先，后台更新。修改代码后把 VERSION 加 1。
-const VERSION = 'crm-v8';
+const VERSION = 'crm-v9';
 const SHELL = [
   './',
   'index.html',

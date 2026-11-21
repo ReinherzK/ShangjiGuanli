@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = '8';
+  const APP_VERSION = '9';
   const STATUSES = ['线索', '商机', '面访', '建联', '转化', '成交', '流失'];
   const LEVELS = ['A', 'B', 'C'];
   const NEXT_OPTIONS = [['明天', 1], ['3天后', 3], ['1周后', 7], ['1个月后', 30], ['不设置', null]];
@@ -302,6 +302,45 @@
   const photoImg = (src, alt) => `<img src="${imageSrc(src)}" alt="${esc(alt)}">`;
   const profilePhoto = (c) => (c?.photos || []).find((photo) => photo.id === c.avatarId)?.src;
 
+  let activePhotoPicker;
+
+  function bindPhotoPicker(input, onPhotos) {
+    input.onclick = () => { activePhotoPicker = input; };
+    input.oncancel = () => {
+      if (activePhotoPicker === input) activePhotoPicker = null;
+    };
+    input.onchange = async () => {
+      const files = Array.from(input.files);
+      input.value = '';
+      if (!files.length) { input.oncancel(); return; }
+      activePhotoPicker = input;
+      input.disabled = true;
+      const route = location.hash;
+      const photos = [];
+      let failed = 0;
+      try {
+        for (const file of files) {
+          if (!input.isConnected || location.hash !== route) return;
+          try {
+            const src = await compressPhoto(file);
+            if (!imageSrc(src)) throw new Error('无法转换图片');
+            photos.push(photoFrom(src));
+          } catch {
+            failed++;
+          }
+        }
+        if (!input.isConnected || location.hash !== route) return;
+        if (!photos.length) { toast('无法读取所选照片，请换一批重试'); return; }
+        if (onPhotos(photos)) {
+          toast(failed ? `已添加 ${photos.length} 张照片，${failed} 张无法读取` : `已添加 ${photos.length} 张照片`);
+        }
+      } finally {
+        input.disabled = false;
+        if (activePhotoPicker === input) activePhotoPicker = null;
+      }
+    };
+  }
+
   function birthdayLabel(c) {
     if (!c.birthday) return c.age ? `${c.age} 岁` : '';
     const current = today();
@@ -330,33 +369,44 @@
     const photos = (c.photos || []).filter((photo) => imageSrc(photo.src));
     return `<div class="section-head"><h3>相册 <small>${photos.length} 张</small></h3></div>
       <div class="photo-grid">
-        ${photos.map((photo, i) => `<button class="photo-tile" data-photo="${i}" aria-label="查看照片 ${i + 1}">${photoImg(photo.src, '')}</button>`).join('')}
-        <label class="photo-add">＋ 上传照片<input type="file" accept="image/*" id="album-file"></label>
+        ${photos.map((photo, i) => `<div class="album-photo">
+          <button class="photo-tile" data-photo="${i}" aria-label="查看照片 ${i + 1}">${photoImg(photo.src, '')}</button>
+          <button class="link-btn album-avatar" data-avatar="${i}" type="button" ${c.avatarId === photo.id ? 'disabled' : ''}>
+            ${c.avatarId === photo.id ? '当前头像' : '设为头像'}
+          </button>
+        </div>`).join('')}
+        <label class="photo-add">＋ 上传照片<input type="file" accept="image/*" id="album-file" multiple></label>
       </div>
       <dialog id="photo-dialog"></dialog>`;
   }
 
   function bindAlbum(c) {
-    const input = $('#album-file');
-    input.onchange = async () => {
-      const file = input.files[0];
-      if (!file) return;
-      const route = location.hash;
-      try {
-        const photo = photoFrom(await compressPhoto(file));
-        const current = Store.get(c.id);
-        if (location.hash === route && current) {
-          input.blur();
-          if (saveChange(() => Store.upsert({ ...current, photos: [...(current.photos || []), photo] }))) {
-            renderDetail(c.id);
-            toast('照片已添加');
-          }
-        }
-      } catch { toast('无法读取这张照片，请换一张重试'); }
-      input.value = '';
-    };
+    bindPhotoPicker($('#album-file'), (photos) => {
+      const current = Store.get(c.id);
+      if (!current || !saveChange(() => Store.upsert({
+        ...current, photos: [...(current.photos || []), ...photos]
+      }))) return false;
+      renderDetail(c.id);
+      return true;
+    });
     const dialog = $('#photo-dialog');
     const photos = (c.photos || []).filter((photo) => imageSrc(photo.src));
+    const setAvatar = (photo) => {
+      const current = Store.get(c.id);
+      if (!current?.photos?.some((item) => item.id === photo.id)) {
+        toast('照片已删除');
+        if (current) renderDetail(c.id);
+        return;
+      }
+      if (saveChange(() => Store.upsert({ ...current, avatarId: photo.id }))) {
+        if (dialog.open) dialog.close();
+        renderDetail(c.id);
+        toast('头像已更新');
+      }
+    };
+    $$('[data-avatar]', view).forEach((button) => {
+      button.onclick = () => setAvatar(photos[Number(button.dataset.avatar)]);
+    });
     $$('[data-photo]', view).forEach((button) => {
       button.onclick = () => {
         const photo = photos[Number(button.dataset.photo)];
@@ -369,9 +419,10 @@
         $$('[data-mode]', dialog).forEach((action) => action.onclick = () => {
           const mode = action.dataset.mode;
           if (mode === 'close') { dialog.close(); return; }
+          if (mode === 'avatar') { setAvatar(photo); return; }
           const current = Store.get(c.id);
           if (!current) return;
-          const next = mode === 'avatar' ? { ...current, avatarId: photo.id } : {
+          const next = {
             ...current,
             avatarId: current.avatarId === photo.id ? '' : current.avatarId,
             photos: (current.photos || []).filter((item) => item.id !== photo.id),
@@ -499,7 +550,7 @@
     view.innerHTML = `
       <section class="profile">
         <div class="profile-top">
-          <button class="profile-avatar" data-act="album" aria-label="打开相册更换头像">${ringAvatar(90, d.kind === 'late' ? 'late' : d.kind === 'today' ? '' : 'none', c)}</button>
+          <button class="profile-avatar" data-act="album" aria-label="更换头像，打开相册">${ringAvatar(90, d.kind === 'late' ? 'late' : d.kind === 'today' ? '' : 'none', c)}</button>
           <div class="stats">
             <div><b>${fus.length}</b><span>动态</span></div>
             <div><b>${known} 天</b><span>认识</span></div>
@@ -571,7 +622,6 @@
       status: statusOf(c.status) || '线索'
     };
     const photos = [];
-    let loadingPhoto = false;
     const nextDate = (label) => { const o = NEXT_OPTIONS.find(([l]) => l === label); return o && o[1] != null ? addDays(today(), o[1]) : ''; };
 
     view.innerHTML = `
@@ -582,7 +632,7 @@
           <textarea id="fuText" placeholder="记录这次互动…"></textarea>
         </label>
       </div>
-      <div class="compose-photos"><div id="compose-preview"></div><label class="photo-add">＋ 照片<input id="compose-file" type="file" accept="image/*"></label></div>
+      <div class="compose-photos"><div id="compose-preview"></div><label class="photo-add">＋ 照片<input id="compose-file" type="file" accept="image/*" multiple></label></div>
       <div class="csec">
         <div class="csec-title">场景<button type="button" class="link-btn" data-manage="calendar">管理场景</button></div>
         <div class="chips" data-group="type">${SCENES.map((t) => `<button class="chip ${st.type === t ? 'on' : ''}" data-v="${t}">${t}</button>`).join('')}</div>
@@ -630,16 +680,13 @@
       });
     };
     const input = $('#compose-file');
-    input.onchange = async () => {
-      const file = input.files[0];
-      if (!file || loadingPhoto) return;
-      loadingPhoto = true;
-      try { photos.push(photoFrom(await compressPhoto(file))); drawPhotos(); }
-      catch { toast('无法读取这张照片，请换一张重试'); }
-      finally { loadingPhoto = false; input.value = ''; }
-    };
+    bindPhotoPicker(input, (batch) => {
+      photos.push(...batch);
+      drawPhotos();
+      return true;
+    });
     const publish = () => {
-      if (loadingPhoto) { toast('照片正在处理中'); return; }
+      if (input.disabled) { toast('照片正在处理中'); return; }
       const content = $('#fuText').value.trim();
       const date = $('#event-date').value;
       if (!date) { toast('请选择互动日期'); $('#event-date').focus(); return; }
@@ -986,7 +1033,7 @@
   });
 
   const isEditing = () =>
-    $('dialog[open]') || /^#\/(new|edit\/|c\/[^/]+\/follow)/.test(location.hash) ||
+    activePhotoPicker?.isConnected || $('dialog[open]') || /^#\/(new|edit\/|c\/[^/]+\/follow)/.test(location.hash) ||
     (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && document.activeElement.id !== 'q');
 
   // 数据变化时：编辑中不重绘，避免打断输入
