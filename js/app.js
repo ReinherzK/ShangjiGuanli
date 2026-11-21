@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = '10';
+  const APP_VERSION = '11';
   const STATUSES = ['线索', '商机', '面访', '建联', '转化', '成交', '流失'];
   const LEVELS = ['A', 'B', 'C'];
   const NEXT_OPTIONS = [['明天', 1], ['3天后', 3], ['1周后', 7], ['1个月后', 30], ['不设置', null]];
@@ -329,19 +329,18 @@
         <img alt="" draggable="false" class="crop-image">
       </div>
       <div class="crop-controls">
-        <label for="avatar-zoom">缩放</label>
-        <input id="avatar-zoom" type="range" min="1" max="4" step="0.01" value="1" disabled>
         <button class="btn primary" type="button" data-crop-save disabled>保存头像</button>
       </div>
-      <p class="hint">拖动照片，滑动缩放条调整圆框内的头像。</p>`;
+      <p class="hint">单指拖动照片，双指捏合或张开缩放。</p>`;
 
     const frame = $('.crop-frame', dialog);
     const img = $('.crop-image', dialog);
-    const slider = $('#avatar-zoom', dialog);
     const save = $('[data-crop-save]', dialog);
     let crop;
-    let drag;
-    const draw = (zoom, x, y) => {
+    let zoom = 1;
+    const pointers = new Map();
+    const draw = (nextZoom, x, y) => {
+      zoom = Math.min(4, Math.max(1, nextZoom));
       crop = avatarCropGeometry(img.naturalWidth, img.naturalHeight, zoom, x, y);
       img.style.width = `${100 / crop.width}%`;
       img.style.height = `${100 / crop.height}%`;
@@ -351,42 +350,63 @@
     const center = () => [crop.x + crop.width / 2, crop.y + crop.height / 2];
     const move = (dx, dy) => {
       const [x, y] = center();
-      draw(Number(slider.value), x - dx * crop.width, y - dy * crop.height);
+      draw(zoom, x - dx * crop.width, y - dy * crop.height);
+    };
+    const pinch = () => {
+      const [a, b] = pointers.values();
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(a.x - b.x, a.y - b.y) };
     };
     img.onload = () => {
       if (!dialog.open || !img.isConnected) return;
       const previous = validCrop(savedCrop);
-      if (previous) slider.value = String(1 / Math.max(savedCrop.width, savedCrop.height));
-      draw(Number(slider.value), previous ? savedCrop.x + savedCrop.width / 2 : 0.5,
+      draw(previous ? 1 / Math.max(savedCrop.width, savedCrop.height) : 1,
+        previous ? savedCrop.x + savedCrop.width / 2 : 0.5,
         previous ? savedCrop.y + savedCrop.height / 2 : 0.5);
-      slider.disabled = false;
       save.disabled = false;
     };
     img.onerror = () => {
       if (dialog.open && img.isConnected) toast('无法打开这张照片');
     };
     frame.onpointerdown = (event) => {
-      if (!crop || drag || event.button !== 0) return;
+      if (!crop || pointers.size >= 2 || event.button !== 0) return;
       event.preventDefault();
       frame.setPointerCapture(event.pointerId);
-      drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     };
     frame.onpointermove = (event) => {
-      if (drag?.id !== event.pointerId) return;
-      const size = frame.clientWidth;
-      if (!size) return;
-      move((event.clientX - drag.x) / size, (event.clientY - drag.y) / size);
-      drag.x = event.clientX;
-      drag.y = event.clientY;
+      const before = pointers.get(event.pointerId);
+      const rect = frame.getBoundingClientRect();
+      if (!before || !rect.width) return;
+      const previous = pointers.size === 2 ? pinch() : null;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (!previous) {
+        move((event.clientX - before.x) / rect.width, (event.clientY - before.y) / rect.height);
+        return;
+      }
+      const next = pinch();
+      if (previous.distance < 2 || next.distance < 2) return;
+      const nextZoom = Math.min(4, Math.max(1, zoom * next.distance / previous.distance));
+      const ratio = zoom / nextZoom;
+      const oldX = (previous.x - rect.left) / rect.width;
+      const oldY = (previous.y - rect.top) / rect.height;
+      const newX = (next.x - rect.left) / rect.width;
+      const newY = (next.y - rect.top) / rect.height;
+      draw(nextZoom, crop.x + crop.width * (oldX + (0.5 - newX) * ratio),
+        crop.y + crop.height * (oldY + (0.5 - newY) * ratio));
     };
-    frame.onlostpointercapture = () => { drag = null; };
+    const release = (event) => pointers.delete(event.pointerId);
+    frame.onpointerup = frame.onpointercancel = frame.onlostpointercapture = release;
     frame.onkeydown = (event) => {
+      if (!crop) return;
       const direction = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
-      if (!crop || !direction) return;
-      event.preventDefault();
-      move(direction[0] * 0.025, direction[1] * 0.025);
+      if (direction) {
+        event.preventDefault();
+        move(direction[0] * 0.025, direction[1] * 0.025);
+      } else if (event.key === '+' || event.key === '-' || event.key === '=') {
+        event.preventDefault();
+        draw(zoom * (event.key === '-' ? 0.9 : 1.1), ...center());
+      }
     };
-    slider.oninput = () => draw(Number(slider.value), ...center());
     save.onclick = () => { if (crop) onSave(crop); };
     $('[data-crop-cancel]', dialog).onclick = () => dialog.close();
     if (!dialog.open) dialog.showModal();
@@ -456,21 +476,205 @@
       ${c.notes ? `<h3 class="sec-title">备注</h3><p class="profile-notes">${esc(c.notes)}</p>` : ''}`;
   }
 
+  const albumPhotos = (c) => (c.photos || []).filter((photo) => imageSrc(photo.src));
+
+  function openAvatarPicker(id) {
+    const c = Store.get(id);
+    if (!c) return;
+    const photos = albumPhotos(c);
+    const dialog = $('#v6-dialog');
+    dialog.innerHTML = `<div class="section-head"><h3>选择头像</h3><button class="link-btn" type="button" data-close>取消</button></div>
+      ${photos.length ? `<div class="photo-grid">
+        ${photos.map((photo, i) => `<button class="photo-tile" type="button" data-choice="${i}" aria-label="用第 ${i + 1} 张照片设置头像">
+          ${photoImg(photo.src, '')}${c.avatarId === photo.id ? '<span class="current-avatar">当前头像</span>' : ''}
+        </button>`).join('')}
+      </div>` : '<p class="hint">相册还没有照片。</p><div class="pad"><button class="btn-lg" type="button" data-upload>前往相册上传</button></div>'}`;
+    $('[data-close]', dialog).onclick = () => dialog.close();
+    const upload = $('[data-upload]', dialog);
+    if (upload) upload.onclick = () => { dialog.close(); detailUi.tab = '相册'; renderDetail(id); };
+    $$('[data-choice]', dialog).forEach((button) => button.onclick = () => {
+      const photo = photos[Number(button.dataset.choice)];
+      editAvatar(dialog, photo, c.avatarId === photo.id ? c.avatarCrop : null, (crop) => {
+        const latest = Store.get(id);
+        if (!latest?.photos?.some((item) => item.id === photo.id && item.src === photo.src)) {
+          dialog.close();
+          renderDetail(id);
+          toast('照片已删除或已更换');
+          return;
+        }
+        if (saveChange(() => Store.upsert({ ...latest, avatarId: photo.id, avatarCrop: crop }))) {
+          dialog.close();
+          renderDetail(id);
+          toast('头像已更新');
+        }
+      });
+    });
+    dialog.showModal();
+  }
+
   function renderAlbum(c) {
-    const photos = (c.photos || []).filter((photo) => imageSrc(photo.src));
+    const photos = albumPhotos(c);
     return `<div class="section-head"><h3>相册 <small>${photos.length} 张</small></h3></div>
-      <div class="photo-grid">
-        ${photos.map((photo, i) => `<div class="album-photo">
-          <button class="photo-tile" data-photo="${i}" aria-label="查看照片 ${i + 1}">${photoImg(photo.src, '')}
-            ${c.avatarId === photo.id ? '<span class="current-avatar">当前头像</span>' : ''}
-          </button>
-          <button class="link-btn album-avatar" data-avatar="${i}" type="button">
-            ${c.avatarId === photo.id ? '调整头像' : '设为头像'}
-          </button>
-        </div>`).join('')}
+      <div class="photo-grid album-grid">
+        ${photos.map((photo, i) => `<button class="photo-tile" type="button" data-photo="${i}" aria-label="查看第 ${i + 1} 张照片">
+          <img src="${imageSrc(photo.src)}" alt="" draggable="false">
+        </button>`).join('')}
         <label class="photo-add">＋ 上传照片<input type="file" accept="image/*" id="album-file" multiple></label>
       </div>
-      <dialog id="photo-dialog"></dialog>`;
+      <div class="album-trash" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 3v7m4-7v7"/></svg>拖到这里删除</div>
+      <dialog id="photo-dialog" class="album-viewer" aria-label="浏览相册"></dialog>`;
+  }
+
+  function openAlbumViewer(photos, first) {
+    const dialog = $('#photo-dialog');
+    dialog.innerHTML = `<button class="album-close" type="button" aria-label="关闭照片浏览">×</button>
+      <div class="album-slides" tabindex="0" aria-label="左右滑动浏览照片">
+        ${photos.map((photo, i) => `<div class="album-slide">${photoImg(photo.src, `第 ${i + 1} 张照片`)}</div>`).join('')}
+      </div>
+      <div class="album-counter" aria-live="polite"></div>`;
+    const track = $('.album-slides', dialog);
+    const counter = $('.album-counter', dialog);
+    const index = () => Math.round(track.scrollLeft / (track.clientWidth || 1));
+    const showCount = () => { counter.textContent = `${index() + 1} / ${photos.length}`; };
+    const closeButton = $('.album-close', dialog);
+    closeButton.onclick = () => dialog.close();
+    dialog.onclick = (event) => {
+      if (event.target === dialog || event.target.classList.contains('album-slide')) dialog.close();
+    };
+    track.onscroll = showCount;
+    dialog.onkeydown = (event) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      track.scrollTo({ left: (index() + (event.key === 'ArrowRight' ? 1 : -1)) * track.clientWidth, behavior: 'smooth' });
+    };
+    dialog.showModal();
+    track.scrollLeft = first * track.clientWidth;
+    showCount();
+  }
+
+  function changeAlbum(id, photoId, targetId) {
+    const current = Store.get(id);
+    if (!current) return;
+    const photos = [...(current.photos || [])];
+    const from = photos.findIndex((photo) => photo.id === photoId);
+    if (from < 0 || photoId === targetId) return;
+    const next = { ...current, photos };
+    if (targetId === null) {
+      if (!confirm('从相册及相关动态中删除这张照片？')) return;
+      photos.splice(from, 1);
+      if (current.avatarId === photoId) {
+        next.avatarId = '';
+        delete next.avatarCrop;
+      }
+      next.followUps = (current.followUps || []).map((record) => record.photoIds?.includes(photoId)
+        ? { ...record, photoIds: record.photoIds.filter((item) => item !== photoId) } : record);
+    } else {
+      const to = photos.findIndex((photo) => photo.id === targetId);
+      if (to < 0) return;
+      const [photo] = photos.splice(from, 1);
+      photos.splice(to, 0, photo);
+    }
+    if (saveChange(() => Store.upsert(next))) renderDetail(id);
+  }
+
+  function bindAlbumDrag(grid, photos, onDrop, onOpen) {
+    const trash = $('.album-trash', view);
+    let press;
+    let ghost;
+    let timer;
+    let suppressClick = false;
+    const tileOf = (element) => element?.closest('[data-photo]');
+    const placeGhost = (x, y) => {
+      ghost.style.left = x + 'px';
+      ghost.style.top = y + 'px';
+    };
+    const hit = (x, y) => document.elementFromPoint(x, y);
+    const reset = () => {
+      clearTimeout(timer);
+      press?.tile.classList.remove('album-origin');
+      ghost?.remove();
+      ghost = null;
+      press = null;
+      trash.hidden = true;
+      trash.classList.remove('over');
+      delete grid.dataset.dragging;
+    };
+    const start = (event, x, y) => {
+      const tile = tileOf(event.target);
+      if (!tile || press) return;
+      suppressClick = false;
+      press = { tile, x, y };
+      timer = setTimeout(() => {
+        if (!grid.isConnected) { reset(); return; }
+        ghost = tile.querySelector('img').cloneNode();
+        ghost.className = 'album-ghost';
+        tile.classList.add('album-origin');
+        grid.dataset.dragging = '';
+        trash.hidden = false;
+        placeGhost(x, y);
+        document.body.append(ghost);
+        if (event.pointerId !== undefined) tile.setPointerCapture(event.pointerId);
+      }, 370);
+    };
+    const move = (event, x, y) => {
+      if (!press) return;
+      if (!ghost) {
+        if (Math.hypot(x - press.x, y - press.y) > 9) reset();
+        return;
+      }
+      if (event.cancelable) event.preventDefault();
+      placeGhost(x, y);
+      trash.classList.toggle('over', trash.contains(hit(x, y)));
+    };
+    const end = (event, x, y, cancelled = false) => {
+      if (!press) return;
+      const tile = press.tile;
+      const dragged = Boolean(ghost);
+      if (dragged) {
+        suppressClick = true;
+        if (event.cancelable) event.preventDefault();
+      }
+      const target = dragged && !cancelled ? hit(x, y) : null;
+      const destination = target && trash.contains(target) ? null : tileOf(target);
+      const deletion = target && trash.contains(target);
+      reset();
+      if (deletion || (destination && grid.contains(destination))) {
+        onDrop(photos[Number(tile.dataset.photo)].id, deletion ? null : photos[Number(destination.dataset.photo)].id);
+      }
+    };
+    grid.addEventListener('touchstart', (event) => {
+      if (event.touches.length !== 1) { reset(); return; }
+      const touch = event.changedTouches[0];
+      start(event, touch.clientX, touch.clientY);
+    }, { passive: true });
+    grid.addEventListener('touchmove', (event) => {
+      const touch = event.changedTouches[0];
+      move(event, touch.clientX, touch.clientY);
+    }, { passive: false });
+    grid.addEventListener('touchend', (event) => {
+      const touch = event.changedTouches[0];
+      end(event, touch.clientX, touch.clientY);
+    }, { passive: false });
+    grid.ontouchcancel = reset;
+    grid.onpointerdown = (event) => {
+      if (event.pointerType === 'mouse' && event.button === 0) start(event, event.clientX, event.clientY);
+    };
+    grid.onpointermove = (event) => {
+      if (event.pointerType === 'mouse') move(event, event.clientX, event.clientY);
+    };
+    grid.onpointerup = (event) => {
+      if (event.pointerType === 'mouse') end(event, event.clientX, event.clientY);
+    };
+    grid.onpointercancel = reset;
+    grid.onpointerleave = (event) => { if (event.pointerType === 'mouse' && !ghost) reset(); };
+    grid.ondragstart = (event) => event.preventDefault();
+    grid.oncontextmenu = (event) => { if (tileOf(event.target)) event.preventDefault(); };
+    grid.onclick = (event) => {
+      const tile = tileOf(event.target);
+      if (!tile) return;
+      if (!suppressClick || event.detail === 0) onOpen(Number(tile.dataset.photo));
+      suppressClick = false;
+    };
   }
 
   function bindAlbum(c) {
@@ -482,62 +686,9 @@
       renderDetail(c.id);
       return true;
     });
-    const dialog = $('#photo-dialog');
-    const photos = (c.photos || []).filter((photo) => imageSrc(photo.src));
-    const setAvatar = (photo) => {
-      const current = Store.get(c.id);
-      if (!current?.photos?.some((item) => item.id === photo.id && item.src === photo.src)) {
-        toast('照片已删除或已更换');
-        if (current) renderDetail(c.id);
-        return;
-      }
-      editAvatar(dialog, photo, current.avatarId === photo.id ? current.avatarCrop : null, (crop) => {
-        const latest = Store.get(c.id);
-        if (!latest?.photos?.some((item) => item.id === photo.id && item.src === photo.src)) {
-          dialog.close();
-          renderDetail(c.id);
-          toast('照片已删除或已更换');
-          return;
-        }
-        if (saveChange(() => Store.upsert({ ...latest, avatarId: photo.id, avatarCrop: crop }))) {
-          dialog.close();
-          renderDetail(c.id);
-          toast('头像已更新');
-        }
-      });
-    };
-    $$('[data-avatar]', view).forEach((button) => {
-      button.onclick = () => setAvatar(photos[Number(button.dataset.avatar)]);
-    });
-    $$('[data-photo]', view).forEach((button) => {
-      button.onclick = () => {
-        const photo = photos[Number(button.dataset.photo)];
-        dialog.innerHTML = `${photoImg(photo.src, '相册照片')}<div class="btn-row">
-          <button class="btn" data-mode="close">关闭</button>
-          <button class="btn primary" data-mode="avatar">设为头像</button>
-          <button class="btn" data-mode="delete">删除</button>
-        </div>`;
-        dialog.showModal();
-        $$('[data-mode]', dialog).forEach((action) => action.onclick = () => {
-          const mode = action.dataset.mode;
-          if (mode === 'close') { dialog.close(); return; }
-          if (mode === 'avatar') { setAvatar(photo); return; }
-          const current = Store.get(c.id);
-          if (!current) return;
-          const next = {
-            ...current,
-            avatarId: current.avatarId === photo.id ? '' : current.avatarId,
-            avatarCrop: current.avatarId === photo.id ? undefined : current.avatarCrop,
-            photos: (current.photos || []).filter((item) => item.id !== photo.id),
-            followUps: (current.followUps || []).map((f) => ({
-              ...f, photoIds: f.photoIds?.filter((id) => id !== photo.id)
-            }))
-          };
-          if (mode === 'delete' && !confirm('从相册及相关动态中删除这张照片？')) return;
-          if (saveChange(() => Store.upsert(next))) { dialog.close(); renderDetail(c.id); }
-        });
-      };
-    });
+    const photos = albumPhotos(c);
+    bindAlbumDrag($('.album-grid', view), photos,
+      (id, target) => changeAlbum(c.id, id, target), (first) => openAlbumViewer(photos, first));
   }
 
   function activityList(c, records, empty) {
@@ -653,7 +804,7 @@
     view.innerHTML = `
       <section class="profile">
         <div class="profile-top">
-          <button class="profile-avatar" data-act="album" aria-label="更换头像，打开相册">${ringAvatar(90, d.kind === 'late' ? 'late' : d.kind === 'today' ? '' : 'none', c)}</button>
+          <button class="profile-avatar" data-act="avatar" aria-label="更换头像">${ringAvatar(90, d.kind === 'late' ? 'late' : d.kind === 'today' ? '' : 'none', c)}</button>
           <div class="stats">
             <div><b>${fus.length}</b><span>动态</span></div>
             <div><b>${known} 天</b><span>认识</span></div>
@@ -680,7 +831,7 @@
       <section>${panels[detailUi.tab]()}</section><dialog id="v6-dialog"></dialog>`;
 
     $$('.seg button', view).forEach((button) => button.onclick = () => { detailUi.tab = button.dataset.tab; renderDetail(id); });
-    $('[data-act="album"]', view).onclick = () => { detailUi.tab = '相册'; renderDetail(id); };
+    $('[data-act="avatar"]', view).onclick = () => openAvatarPicker(id);
     if (detailUi.tab === '相册') bindAlbum(c);
     $$('[data-filter]', view).forEach((button) => button.onclick = () => {
       detailUi.filter = button.dataset.filter;
@@ -1131,12 +1282,13 @@
   }
 
   window.addEventListener('hashchange', () => {
+    $('.album-ghost')?.remove();
     render();
     window.scrollTo(0, 0);
   });
 
   const isEditing = () =>
-    activePhotoPicker?.isConnected || $('dialog[open]') || /^#\/(new|edit\/|c\/[^/]+\/follow)/.test(location.hash) ||
+    activePhotoPicker?.isConnected || $('.album-grid[data-dragging]') || $('dialog[open]') || /^#\/(new|edit\/|c\/[^/]+\/follow)/.test(location.hash) ||
     (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && document.activeElement.id !== 'q');
 
   // 数据变化时：编辑中不重绘，避免打断输入
