@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = '11';
+  const APP_VERSION = '12';
   const STATUSES = ['线索', '商机', '面访', '建联', '转化', '成交', '流失'];
   const LEVELS = ['A', 'B', 'C'];
   const NEXT_OPTIONS = [['明天', 1], ['3天后', 3], ['1周后', 7], ['1个月后', 30], ['不设置', null]];
