@@ -1,8 +1,7 @@
 (() => {
-  const APP_VERSION = '7';
-  const STATUSES = ['潜在', '跟进中', '已成交', '已流失'];
+  const APP_VERSION = '8';
+  const STATUSES = ['线索', '商机', '面访', '建联', '转化', '成交', '流失'];
   const LEVELS = ['A', 'B', 'C'];
-  const FU_TYPES = ['电话', '微信', '拜访', '邮件', '其他'];
   const NEXT_OPTIONS = [['明天', 1], ['3天后', 3], ['1周后', 7], ['1个月后', 30], ['不设置', null]];
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -43,11 +42,11 @@
 
   // 默认卡通头像（未上传头像时使用）
   const DEFAULT_AVATAR = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" fill="#F1EEE9"/><path d="M10 64c0-12 10-19 22-19s22 7 22 19z" fill="#00503C"/><rect x="27" y="36" width="10" height="10" rx="3" fill="#E9B98F"/><path d="M26.5 45l5.5 6 5.5-6z" fill="#FFFFFF"/><circle cx="20.5" cy="28" r="3" fill="#EDBB92"/><circle cx="43.5" cy="28" r="3" fill="#EDBB92"/><ellipse cx="32" cy="27" rx="11.5" ry="12.5" fill="#F3CBA5"/><path d="M20.3 25.5C20 16.5 25.5 12 32.5 12S44.2 16 43.8 24.5c-3-4.2-8-6-14-5-4.2.8-7 3-9.5 6z" fill="#2E2A27"/><circle cx="27.6" cy="28.5" r="1.5" fill="#2E2A27"/><circle cx="36.4" cy="28.5" r="1.5" fill="#2E2A27"/><path d="M28.6 33.2q3.4 2.8 6.8 0" stroke="#B0704A" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
-  const avatar = (size) => `<span class="avatar" style="width:${size}px;height:${size}px">${DEFAULT_AVATAR}</span>`;
+  const avatar = (size, c) => `<span class="avatar" style="width:${size}px;height:${size}px">${imageSrc(profilePhoto(c)) ? photoImg(profilePhoto(c), '') : DEFAULT_AVATAR}</span>`;
   // 带圆环的头像：late=逾期(红土橙)，today=今天(绿)，其他=灰
-  const ringAvatar = (size, kind) => {
+  const ringAvatar = (size, kind, c) => {
     const inner = size - 6;
-    return `<span class="ring ${kind}" style="width:${size}px;height:${size}px"><span>${avatar(inner - 4)}</span></span>`;
+    return `<span class="ring ${kind}" style="width:${size}px;height:${size}px"><span>${avatar(inner - 4, c)}</span></span>`;
   };
 
   // ---------- 通用 ----------
@@ -63,7 +62,7 @@
 
   // 跟进状态：late / today / soon / none
   function dueInfo(c) {
-    if (!c.nextFollowUp || c.status === '已流失') return { kind: 'none', label: '' };
+    if (!c.nextFollowUp || statusOf(c.status) === '流失') return { kind: 'none', label: '' };
     const n = daysBetween(today(), c.nextFollowUp);
     if (n < 0) return { kind: 'late', label: `逾期 ${-n} 天`, days: n };
     if (n === 0) return { kind: 'today', label: '今天跟进', days: 0 };
@@ -177,7 +176,7 @@
     const due = dueCustomers();
     const all = Store.all();
     const counts = { '全部': all.length };
-    all.forEach((c) => { counts[c.status] = (counts[c.status] || 0) + 1; });
+    all.forEach((c) => { counts[statusOf(c.status)] = (counts[statusOf(c.status)] || 0) + 1; });
 
     view.innerHTML = `
       ${banner()}
@@ -185,7 +184,7 @@
         ${due.map((c) => {
           const d = dueInfo(c);
           return `<a class="story" href="#/c/${c.id}">
-            ${ringAvatar(64, d.kind === 'late' ? 'late' : '')}
+            ${ringAvatar(64, d.kind === 'late' ? 'late' : '', c)}
             <span class="nm">${esc(c.name)}</span>
             <span class="when ${d.kind === 'late' ? 'late' : ''}">${d.kind === 'late' ? esc(d.label) : '今天'}</span>
           </a>`;
@@ -209,10 +208,10 @@
   function renderPosts() {
     const q = ui.query.trim().toLowerCase();
     let list = Store.all();
-    if (ui.status !== '全部') list = list.filter((c) => c.status === ui.status);
+    if (ui.status !== '全部') list = list.filter((c) => statusOf(c.status) === ui.status);
     if (q) {
       list = list.filter((c) =>
-        [c.name, c.company, c.title, c.phone, c.wechat, c.email, c.address, c.source, c.notes, (c.tags || []).join(' '),
+        [c.name, c.company, c.title, c.phone, c.wechat, c.email, c.address, c.source, c.channel, c.occupation, c.residence, c.hometown, c.notes, ...(c.preferences || []), (c.tags || []).join(' '),
           ...(c.followUps || []).map((f) => f.content)]
           .some((v) => String(v || '').toLowerCase().includes(q)));
     }
@@ -227,20 +226,20 @@
       const f = (c.followUps || [])[0];
       const tel = telOf(c);
       const d = dueInfo(c);
-      const text = f ? f.content : (c.notes || '还没有跟进记录');
+      const text = f ? (f.content || f.place || f.type || '互动记录') : (c.notes || '还没有跟进记录');
       const meta = f ? `${f.type} · ${fmtDay(f.date)}` : `创建于 ${fmtDay((c.createdAt || '').slice(0, 10))}`;
       return `<article class="post">
         <a class="post-head" href="#/c/${c.id}">
-          ${avatar(40)}
+          ${avatar(40, c)}
           <span class="who"><span class="nm">${esc(c.name)}</span><span class="co">${esc([c.company, c.title].filter(Boolean).join(' · ') || c.phone || '')}</span></span>
-          ${c.status ? `<span class="status"><span class="dot s-${esc(c.status)}"></span>${esc(c.status)}</span>` : ''}
+          ${c.status ? `<span class="status"><span class="dot s-${esc(statusOf(c.status))}"></span>${esc(statusOf(c.status))}</span>` : ''}
         </a>
         <p class="post-text ${f || c.notes ? '' : 'placeholder'}">${esc(text)}</p>
         <div class="post-meta">${esc(meta)}</div>
         <div class="post-actions">
           <a class="act ${tel ? '' : 'disabled'}" href="tel:${esc(tel)}" aria-label="打电话">${ICON.phone}</a>
           <a class="act ${tel ? '' : 'disabled'}" href="sms:${esc(tel)}" aria-label="发短信">${ICON.message}</a>
-          <a class="act" href="#/c/${c.id}/follow" aria-label="写跟进">${ICON.pen}</a>
+          <a class="act" href="#/c/${c.id}/follow" aria-label="写动态">${ICON.pen}</a>
           ${d.label ? `<span class="next ${d.kind}">${esc(d.label)}</span>` : ''}
         </div>
       </article>`;
@@ -248,7 +247,229 @@
   }
 
   // ---------- 客户详情 ----------
-  const detailUi = { tab: '动态' };
+  const DEFAULT_CHANNELS = [
+    ...['Blued', '小红书', 'Grindr'].map((name) => ({ name, kind: '线上' })),
+    { name: '喝酒', kind: '线下' }
+  ];
+  const SCENES = ['线上聊天', '线下见面', '约炮'];
+  const PALETTES = {
+    green: ['#F4F4F4', '#CFE3DA', '#8BBFA5', '#2C8657', '#00503C'],
+    clay: ['#F4F4F4', '#F4DAC8', '#EAB593', '#CC4E0E', '#993606']
+  };
+  const calendarSettings = () => ({
+    weights: [1, 2, 3], thresholds: [1, 2, 3, 5], palette: 'green',
+    ...Store.settings('calendar')
+  });
+  const statusOf = (s) => ({ 潜在: '线索', 跟进中: '商机', 已成交: '成交', 已流失: '流失' })[s] || s || '';
+  const imageSrc = (s) => typeof s === 'string' && /^data:image\/jpeg;base64,[\w+/=]+$/.test(s) ? s : '';
+  const dateMonth = (date) => date.slice(0, 7);
+  const localTime = () => new Date().toTimeString().slice(0, 5);
+  const tagList = (tags) => tags.map((tag) => `<span class="chip">${esc(tag)}</span>`).join('');
+  const infoRows = (rows) => rows.filter(([, value]) => value).map(([key, value]) =>
+    `<div class="kv"><span class="k">${key}</span><span class="v">${esc(value)}</span></div>`).join('');
+
+  function saveChange(action) {
+    try { return action(); }
+    catch (error) {
+      console.error(error);
+      toast(error.name === 'QuotaExceededError' ? '本机存储空间不足，请删除部分照片后重试' : '保存失败，请重试');
+      return null;
+    }
+  }
+
+  async function compressPhoto(file) {
+    if (file.type && !file.type.startsWith('image/')) throw new Error('请选择图片文件');
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const scale = Math.min(1, 960 / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.75);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  const photoFrom = (src) => ({ id: crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2), src });
+  const photoImg = (src, alt) => `<img src="${imageSrc(src)}" alt="${esc(alt)}">`;
+  const profilePhoto = (c) => (c?.photos || []).find((photo) => photo.id === c.avatarId)?.src;
+
+  function birthdayLabel(c) {
+    if (!c.birthday) return c.age ? `${c.age} 岁` : '';
+    const current = today();
+    const md = c.birthday.slice(5);
+    const age = Number(current.slice(0, 4)) - Number(c.birthday.slice(0, 4)) - Number(current.slice(5) < md);
+    const [month, day] = md.split('-').map(Number);
+    const cutoffs = [20, 19, 21, 20, 21, 22, 23, 23, 23, 24, 23, 22];
+    const signs = ['摩羯', '水瓶', '双鱼', '白羊', '金牛', '双子', '巨蟹', '狮子', '处女', '天秤', '天蝎', '射手'];
+    return `${fmtDay(c.birthday)} · ${age} 岁 · ${signs[(month - 1 + Number(day >= cutoffs[month - 1])) % 12]}座`;
+  }
+
+  function renderProfileInfo(c) {
+    const facts = infoRows([
+      ['身材', [c.height && c.height + ' cm', c.weight && c.weight + ' kg', c.body].filter(Boolean).join(' · ')],
+      ['角色', c.role], ['生日 / 年龄', birthdayLabel(c)], ['故乡', c.hometown], ['现居', c.residence],
+      ['职业', c.occupation], ['认识', [c.channel || c.source, c.knownSince && fmtDay(c.knownSince)].filter(Boolean).join(' · ')]
+    ]);
+    const contacts = infoRows([['微信', c.wechat], ['电话', c.phone], ['邮箱', c.email], ['联系地址', c.address]]);
+    return `<h3 class="sec-title">资料</h3>${facts || '<p class="hint">点右上角编辑，补充客户资料。</p>'}
+      ${c.preferences?.length ? `<h3 class="sec-title">偏好</h3><div class="chips v6-tags">${tagList(c.preferences)}</div>` : ''}
+      ${contacts ? `<h3 class="sec-title">联系方式</h3>${contacts}` : ''}
+      ${c.notes ? `<h3 class="sec-title">备注</h3><p class="profile-notes">${esc(c.notes)}</p>` : ''}`;
+  }
+
+  function renderAlbum(c) {
+    const photos = (c.photos || []).filter((photo) => imageSrc(photo.src));
+    return `<div class="section-head"><h3>相册 <small>${photos.length} 张</small></h3></div>
+      <div class="photo-grid">
+        ${photos.map((photo, i) => `<button class="photo-tile" data-photo="${i}" aria-label="查看照片 ${i + 1}">${photoImg(photo.src, '')}</button>`).join('')}
+        <label class="photo-add">＋ 上传照片<input type="file" accept="image/*" id="album-file"></label>
+      </div>
+      <dialog id="photo-dialog"></dialog>`;
+  }
+
+  function bindAlbum(c) {
+    const input = $('#album-file');
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      const route = location.hash;
+      try {
+        const photo = photoFrom(await compressPhoto(file));
+        const current = Store.get(c.id);
+        if (location.hash === route && current) {
+          input.blur();
+          if (saveChange(() => Store.upsert({ ...current, photos: [...(current.photos || []), photo] }))) {
+            renderDetail(c.id);
+            toast('照片已添加');
+          }
+        }
+      } catch { toast('无法读取这张照片，请换一张重试'); }
+      input.value = '';
+    };
+    const dialog = $('#photo-dialog');
+    const photos = (c.photos || []).filter((photo) => imageSrc(photo.src));
+    $$('[data-photo]', view).forEach((button) => {
+      button.onclick = () => {
+        const photo = photos[Number(button.dataset.photo)];
+        dialog.innerHTML = `${photoImg(photo.src, '相册照片')}<div class="btn-row">
+          <button class="btn" data-mode="close">关闭</button>
+          <button class="btn primary" data-mode="avatar">设为头像</button>
+          <button class="btn" data-mode="delete">删除</button>
+        </div>`;
+        dialog.showModal();
+        $$('[data-mode]', dialog).forEach((action) => action.onclick = () => {
+          const mode = action.dataset.mode;
+          if (mode === 'close') { dialog.close(); return; }
+          const current = Store.get(c.id);
+          if (!current) return;
+          const next = mode === 'avatar' ? { ...current, avatarId: photo.id } : {
+            ...current,
+            avatarId: current.avatarId === photo.id ? '' : current.avatarId,
+            photos: (current.photos || []).filter((item) => item.id !== photo.id),
+            followUps: (current.followUps || []).map((f) => ({
+              ...f, photoIds: f.photoIds?.filter((id) => id !== photo.id)
+            }))
+          };
+          if (mode === 'delete' && !confirm('从相册及相关动态中删除这张照片？')) return;
+          if (saveChange(() => Store.upsert(next))) { dialog.close(); renderDetail(c.id); }
+        });
+      };
+    });
+  }
+
+  function activityList(c, records, empty) {
+    if (!records.length) return `<div class="empty">${empty}</div>`;
+    const photos = new Map((c.photos || []).map((photo) => [photo.id, photo.src]));
+    return records.map((f) => `<article class="fitem">
+      <time class="activity-date" datetime="${esc(f.date)}">${esc(fmtDay(f.date))}</time>
+      <div class="fbody">
+        <div class="fhead"><b>${esc(f.type)}</b><span>${esc([f.time, f.place].filter(Boolean).join(' · '))}</span>
+          <button data-del="${esc(f.id)}" aria-label="删除这条动态">删除</button></div>
+        ${f.content ? `<p class="ftext">${esc(f.content)}</p>` : ''}
+        ${f.photoIds?.length ? `<div class="activity-photos">${f.photoIds.map((id) => photos.get(id) ? photoImg(photos.get(id), '动态照片') : '').join('')}</div>` : ''}
+      </div>
+    </article>`).join('');
+  }
+
+  function interactionCalendar(c, records) {
+    const month = detailUi.month;
+    const start = new Date(month + '-01T00:00:00');
+    const days = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+    const offset = (start.getDay() + 6) % 7;
+    const preferences = calendarSettings();
+    const colors = PALETTES[preferences.palette] || PALETTES.green;
+    const totals = new Map();
+    for (const record of records) {
+      const index = SCENES.indexOf(record.type);
+      totals.set(record.date, (totals.get(record.date) || 0) + (preferences.weights[index] ?? 1));
+    }
+    const cells = Array.from({ length: days }, (_, index) => {
+      const day = index + 1;
+      const iso = month + '-' + String(day).padStart(2, '0');
+      const score = totals.get(iso) || 0;
+      const level = preferences.thresholds.filter((minimum) => score >= minimum).length;
+      return `<button data-day="${iso}" aria-label="${iso}，活跃度 ${score}" aria-pressed="${detailUi.day === iso}"
+        class="calendar-day ${iso === today() ? 'calendar-today' : ''}" style="background:${colors[level]};color:${level >= 3 ? '#fff' : '#242424'}">${day}</button>`;
+    });
+    const selected = detailUi.day;
+    return `<div class="section-head"><h3>互动日历</h3><button type="button" class="link-btn" data-manage="calendar">场景与颜色</button></div>
+      <div class="calendar-nav">
+        <button class="btn small" data-month="-1" aria-label="上一月">‹</button>
+        <strong>${start.getFullYear()}年${start.getMonth() + 1}月</strong>
+        <button class="btn small" data-month="1" aria-label="下一月">›</button>
+      </div>
+      <div class="calendar-grid">
+        ${['一', '二', '三', '四', '五', '六', '日'].map((d) => `<span>${d}</span>`).join('')}
+        ${'<span aria-hidden="true"></span>'.repeat(offset)}${cells.join('')}
+      </div>
+      <div class="calendar-legend">互动少 ${colors.map((color) => `<i style="background:${color}"></i>`).join('')} 互动多</div>
+      <div class="section-head"><h3>${esc(fmtDay(selected))}</h3></div>
+      ${activityList(c, records.filter((f) => f.date === selected), '当天没有互动记录')}`;
+  }
+
+  function openSceneSettings(onSave = () => {}) {
+    const prefs = calendarSettings();
+    const dialog = $('#v6-dialog');
+    dialog.innerHTML = `<form id="sceneForm">
+      <div class="section-head"><h3>场景与日历颜色</h3><button class="link-btn" type="button" data-close>取消</button></div>
+      <h4 class="sec-title">场景与权重</h4>
+      ${SCENES.map((scene, i) => `<label class="setting-row">${scene}<input type="number" name="weight" min="1" max="20" required value="${esc(prefs.weights[i])}"></label>`).join('')}
+      <h4 class="sec-title">日历颜色</h4>
+      <label class="setting-row">色板<select name="palette"><option value="green">墨绿</option><option value="clay">红土橙</option></select></label>
+      ${['少量', '一般', '频繁', '密集'].map((level, i) => `<label class="setting-row">${level}<i data-swatch="${i}"></i><input type="number" name="threshold" min="1" max="100" required value="${esc(prefs.thresholds[i])}"></label>`).join('')}
+      <div class="pad"><button class="btn-lg">保存</button></div>
+    </form>`;
+    const form = $('#sceneForm', dialog);
+    const palette = form.elements.palette;
+    palette.value = prefs.palette in PALETTES ? prefs.palette : 'green';
+    const paint = () => $$('[data-swatch]', dialog).forEach((swatch, i) => { swatch.style.background = PALETTES[palette.value][i + 1]; });
+    palette.onchange = paint;
+    paint();
+    $('[data-close]', dialog).onclick = () => dialog.close();
+    form.onsubmit = (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const thresholds = data.getAll('threshold').map(Number);
+      if (thresholds.some((t, i) => i && t <= thresholds[i - 1])) { toast('颜色分级的阈值必须依次增大'); return; }
+      const settings = { weights: data.getAll('weight').map(Number), thresholds, palette: palette.value };
+      if (saveChange(() => { Store.updateSettings('calendar', settings); return true; })) {
+        dialog.close();
+        onSave();
+      }
+    };
+    dialog.showModal();
+  }
+
+  const detailUi = { id: null, tab: '资料', day: today(), month: dateMonth(today()), filter: '全部' };
 
   function renderDetail(id) {
     const c = Store.get(id);
@@ -259,18 +480,28 @@
     const tel = telOf(c);
     const d = dueInfo(c);
     const fus = c.followUps || [];
-    const known = c.createdAt ? Math.max(0, daysBetween(c.createdAt.slice(0, 10), today())) : 0;
-    const info = [
-      ['电话', c.phone], ['微信', c.wechat], ['邮箱', c.email], ['地址', c.address],
-      ['来源', c.source], ['备注', c.notes], ['创建于', fmtDay((c.createdAt || '').slice(0, 10))]
-    ].filter(([, v]) => v);
+    if (detailUi.id !== id) Object.assign(detailUi, {
+      id, tab: '资料', day: today(), month: dateMonth(today()), filter: '全部'
+    });
+    const since = c.knownSince || c.createdAt?.slice(0, 10);
+    const known = since ? Math.max(0, daysBetween(since, today())) : 0;
+    const filters = [...new Set(['全部', ...SCENES, ...fus.map((f) => f.type).filter(Boolean)])];
+    const feed = detailUi.filter === '全部' ? fus : fus.filter((f) => f.type === detailUi.filter);
+    const panels = {
+      资料: () => renderProfileInfo(c),
+      相册: () => renderAlbum(c),
+      日历: () => interactionCalendar(c, fus),
+      动态: () => `<div class="section-head"><h3>动态 <small>${fus.length} 条</small></h3></div>
+        <div class="chips v6-tags">${filters.map((filter) => `<button class="chip ${detailUi.filter === filter ? 'on' : ''}" data-filter="${esc(filter)}">${esc(filter)}</button>`).join('')}</div>
+        ${activityList(c, feed, '没有相关动态，点“写动态”添加记录')}`
+    };
 
     view.innerHTML = `
       <section class="profile">
         <div class="profile-top">
-          ${ringAvatar(90, d.kind === 'late' ? 'late' : d.kind === 'today' ? '' : 'none')}
+          <button class="profile-avatar" data-act="album" aria-label="打开相册更换头像">${ringAvatar(90, d.kind === 'late' ? 'late' : d.kind === 'today' ? '' : 'none', c)}</button>
           <div class="stats">
-            <div><b>${fus.length}</b><span>跟进</span></div>
+            <div><b>${fus.length}</b><span>动态</span></div>
             <div><b>${known} 天</b><span>认识</span></div>
             <div><b>${esc(c.level || '—')}</b><span>等级</span></div>
           </div>
@@ -279,36 +510,47 @@
         ${c.company || c.title ? `<div class="psub">${esc([c.company, c.title].filter(Boolean).join(' · '))}</div>` : ''}
         ${(c.tags || []).length ? `<div class="ptags">${c.tags.map((t) => '#' + esc(t)).join(' ')}</div>` : ''}
         <div class="pline">
-          ${c.status ? `<span class="status"><span class="dot s-${esc(c.status)}"></span>${esc(c.status)}</span>` : ''}
+          ${c.status ? `<span class="status"><span class="dot s-${esc(statusOf(c.status))}"></span>${esc(statusOf(c.status))}</span>` : ''}
           ${d.kind === 'late' ? `<span class="late">${esc(d.label)}未跟进</span>` : d.label ? `<span class="muted">${esc(d.label)}</span>` : ''}
         </div>
         <div class="btn-row">
-          <a class="btn primary" href="#/c/${c.id}/follow">写跟进</a>
+          <a class="btn primary" href="#/c/${c.id}/follow">写动态</a>
           <a class="btn ${tel ? '' : 'disabled'}" href="tel:${esc(tel)}">电话</a>
           <button class="btn ${c.wechat ? '' : 'disabled'}" data-act="wechat">复制微信</button>
           <a class="btn icon ${c.email ? '' : 'disabled'}" href="mailto:${esc(c.email || '')}" aria-label="发邮件">${ICON.mail}</a>
         </div>
       </section>
       <div class="seg" role="tablist">
-        ${['动态', '资料'].map((t) => `<button class="${detailUi.tab === t ? 'on' : ''}" data-tab="${t}" role="tab" aria-selected="${detailUi.tab === t}">${t}</button>`).join('')}
+        ${Object.keys(panels).map((t) => `<button class="${detailUi.tab === t ? 'on' : ''}" data-tab="${t}" role="tab" aria-selected="${detailUi.tab === t}">${t}</button>`).join('')}
       </div>
-      ${detailUi.tab === '动态'
-        ? (fus.length ? fus.map((f, i) => `<article class="fitem">
-            <span class="ficon ${i === 0 ? 'recent' : ''}">${esc((f.type || '其').slice(0, 1))}</span>
-            <div class="fbody">
-              <div class="fhead"><b>${esc(f.type)}</b><span>${esc(fmtDay(f.date))}</span><button data-del="${f.id}" aria-label="删除这条跟进">删除</button></div>
-              <p class="ftext">${esc(f.content)}</p>
-            </div>
-          </article>`).join('') : '<div class="empty">还没有跟进记录，点“写跟进”添加第一条</div>')
-        : (info.length ? info.map(([k, v]) => `<div class="kv"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('') : '<div class="empty">暂无资料，点右上角“编辑”补充</div>')}`;
+      <section>${panels[detailUi.tab]()}</section><dialog id="v6-dialog"></dialog>`;
 
-    $$('.seg button', view).forEach((b) => b.onclick = () => { detailUi.tab = b.dataset.tab; renderDetail(id); });
+    $$('.seg button', view).forEach((button) => button.onclick = () => { detailUi.tab = button.dataset.tab; renderDetail(id); });
+    $('[data-act="album"]', view).onclick = () => { detailUi.tab = '相册'; renderDetail(id); };
+    if (detailUi.tab === '相册') bindAlbum(c);
+    $$('[data-filter]', view).forEach((button) => button.onclick = () => {
+      detailUi.filter = button.dataset.filter;
+      renderDetail(id);
+    });
+    $$('[data-day]', view).forEach((button) => button.onclick = () => {
+      detailUi.day = button.dataset.day;
+      renderDetail(id);
+    });
+    $$('[data-month]', view).forEach((button) => button.onclick = () => {
+      const date = new Date(detailUi.month + '-01T00:00:00');
+      date.setMonth(date.getMonth() + Number(button.dataset.month));
+      detailUi.month = dateMonth(ymd(date));
+      detailUi.day = detailUi.month === dateMonth(today()) ? today() : ymd(date);
+      renderDetail(id);
+    });
+    const manage = $('[data-manage="calendar"]', view);
+    if (manage) manage.onclick = () => openSceneSettings(() => renderDetail(id));
     const wx = $('[data-act="wechat"]', view);
     wx.onclick = async () => {
       try { await navigator.clipboard.writeText(c.wechat); toast('微信号已复制'); } catch { toast(c.wechat); }
     };
     $$('[data-del]', view).forEach((b) => b.onclick = () => {
-      if (confirm('删除这条跟进记录？')) Store.removeFollowUp(id, b.dataset.del);
+      if (confirm('删除这条动态？')) saveChange(() => Store.removeFollowUp(id, b.dataset.del));
     });
   }
 
@@ -318,41 +560,53 @@
     if (!c) { location.replace('#/'); return; }
     setTab(null);
     headerSub({
-      title: '写跟进',
+      title: '写动态',
       left: `<a class="text-btn" href="#/c/${c.id}">取消</a>`,
       right: '<button class="text-btn strong" data-act="publish">发布</button>'
     });
 
     const st = {
-      type: FU_TYPES[1],
+      type: SCENES[1],
       next: '3天后',
-      status: c.status === '潜在' || !c.status ? '跟进中' : c.status
+      status: statusOf(c.status) || '线索'
     };
+    const photos = [];
+    let loadingPhoto = false;
     const nextDate = (label) => { const o = NEXT_OPTIONS.find(([l]) => l === label); return o && o[1] != null ? addDays(today(), o[1]) : ''; };
 
     view.innerHTML = `
       <div class="compose-head">
-        ${avatar(40)}
+        ${avatar(40, c)}
         <label style="flex:1">
           <span class="who">${esc(c.name)}${c.company ? ' · ' + esc(c.company) : ''}</span>
-          <textarea id="fuText" placeholder="这次沟通了什么？客户有什么需求？下一步怎么推进？"></textarea>
+          <textarea id="fuText" placeholder="记录这次互动…"></textarea>
         </label>
       </div>
+      <div class="compose-photos"><div id="compose-preview"></div><label class="photo-add">＋ 照片<input id="compose-file" type="file" accept="image/*"></label></div>
       <div class="csec">
-        <div class="csec-title">跟进方式</div>
-        <div class="chips" data-group="type">${FU_TYPES.map((t) => `<button class="chip ${st.type === t ? 'on' : ''}" data-v="${t}">${t}</button>`).join('')}</div>
+        <div class="csec-title">场景<button type="button" class="link-btn" data-manage="calendar">管理场景</button></div>
+        <div class="chips" data-group="type">${SCENES.map((t) => `<button class="chip ${st.type === t ? 'on' : ''}" data-v="${t}">${t}</button>`).join('')}</div>
       </div>
       <div class="csec">
-        <div class="csec-title"><span>下次跟进</span><input type="date" id="nextDate" aria-label="下次跟进日期" value="${nextDate(st.next)}"></div>
+        <div class="csec-title">时间</div>
+        <div class="compose-date"><input id="event-date" type="date" aria-label="互动日期" value="${today()}"><input id="event-time" type="time" aria-label="互动时间" value="${localTime()}"></div>
+      </div>
+      <div class="csec">
+        <div class="csec-title"><label for="event-place">地点</label></div>
+        <input class="v6-input" id="event-place" placeholder="输入地点">
+        <div class="chips">${['微信', '我家', '他家', '健身房'].map((place) => `<button class="chip" data-place="${place}">${place}</button>`).join('')}</div>
+      </div>
+      <div class="csec">
+        <div class="csec-title"><span>下次联系</span><input type="date" id="nextDate" aria-label="下次跟进日期" value="${nextDate(st.next)}"></div>
         <div class="chips" data-group="next">${NEXT_OPTIONS.map(([l]) => `<button class="chip ${st.next === l ? 'on' : ''}" data-v="${l}">${l}</button>`).join('')}</div>
       </div>
       <div class="csec">
         <div class="csec-title">客户状态</div>
         <div class="chips" data-group="status">${STATUSES.map((s) => `<button class="chip ${st.status === s ? 'on' : ''}" data-v="${s}">${s}</button>`).join('')}</div>
       </div>
-      <div class="pad"><button class="btn-lg" data-act="publish">发布跟进</button></div>`;
+      <div class="pad"><button class="btn-lg" data-act="publish">发布动态</button></div><dialog id="v6-dialog"></dialog>`;
 
-    $$('.chips', view).forEach((g) => {
+    $$('[data-group]', view).forEach((g) => {
       $$('.chip', g).forEach((b) => b.onclick = () => {
         $$('.chip', g).forEach((x) => x.classList.toggle('on', x === b));
         st[g.dataset.group] = b.dataset.v;
@@ -364,25 +618,111 @@
       $$('[data-group="next"] .chip', view).forEach((x) => x.classList.remove('on'));
     };
 
+    $('[data-manage="calendar"]', view).onclick = () => openSceneSettings();
+    $$('[data-place]', view).forEach((button) => button.onclick = () => { $('#event-place').value = button.dataset.place; });
+    const preview = $('#compose-preview');
+    const drawPhotos = () => {
+      preview.innerHTML = photos.map((photo, i) => `<span class="draft-photo">${photoImg(photo.src, '')}
+        <button data-remove-photo="${i}" aria-label="移除照片">×</button></span>`).join('');
+      $$('[data-remove-photo]', preview).forEach((button) => button.onclick = () => {
+        photos.splice(Number(button.dataset.removePhoto), 1);
+        drawPhotos();
+      });
+    };
+    const input = $('#compose-file');
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file || loadingPhoto) return;
+      loadingPhoto = true;
+      try { photos.push(photoFrom(await compressPhoto(file))); drawPhotos(); }
+      catch { toast('无法读取这张照片，请换一张重试'); }
+      finally { loadingPhoto = false; input.value = ''; }
+    };
     const publish = () => {
+      if (loadingPhoto) { toast('照片正在处理中'); return; }
       const content = $('#fuText').value.trim();
-      if (!content) { toast('请先写下跟进内容'); $('#fuText').focus(); return; }
+      const date = $('#event-date').value;
+      if (!date) { toast('请选择互动日期'); $('#event-date').focus(); return; }
       const cur = Store.get(id);
-      cur.nextFollowUp = $('#nextDate').value || '';
-      cur.status = st.status;
-      Store.addFollowUp(id, { date: today(), type: st.type, content });
+      if (!cur) { toast('客户已删除'); location.replace('#/'); return; }
+      const place = $('#event-place').value.trim();
+      if (!content && !place && !photos.length) { toast('请填写内容或地点，或添加照片'); return; }
+      const saved = saveChange(() => Store.addFollowUp(id, {
+        date, time: $('#event-time').value, place,
+        type: st.type, content, photoIds: photos.map((photo) => photo.id)
+      }, {
+        nextFollowUp: $('#nextDate').value,
+        status: st.status,
+        photos: [...(cur.photos || []), ...photos]
+      }));
+      if (!saved) return;
       toast('已发布');
-      detailUi.tab = '动态';
+      Object.assign(detailUi, { id, tab: '动态', filter: '全部' });
       location.replace(`#/c/${id}`);
     };
     $$('[data-act="publish"]').forEach((b) => b.onclick = publish);
-    setTimeout(() => $('#fuText').focus(), 50);
+  }
+
+  const channels = () => Store.settings('channels') || DEFAULT_CHANNELS;
+
+  function openChannels(onChange) {
+    const dialog = $('#v6-dialog');
+    function draw(kind) {
+      const list = channels();
+      dialog.innerHTML = `<div class="section-head"><h3>认识渠道</h3><button class="link-btn" data-close>完成</button></div>
+        <form id="channel-form" class="channel-add">
+          <input class="v6-input" name="channel" aria-label="新渠道名称" maxlength="40" required placeholder="新渠道名称">
+          <select name="kind" aria-label="渠道类型"><option>线上</option><option>线下</option></select>
+          <button class="btn primary">添加</button>
+        </form>
+        ${['线上', '线下'].map((group) => `<h4 class="sec-title">${group}</h4>
+          ${list.map((item, i) => item.kind !== group ? '' : `<div class="setting-row">
+            <span class="channel-name">${esc(item.name)}</span>
+            <small>${Store.all().filter((customer) => customer.channel === item.name).length} 人</small>
+            <button class="link-btn" data-index="${i}" data-direction="-1" aria-label="上移 ${esc(item.name)}">↑</button>
+            <button class="link-btn" data-index="${i}" data-direction="1" aria-label="下移 ${esc(item.name)}">↓</button>
+            <button class="link-btn remove-link" data-index="${i}" aria-label="删除 ${esc(item.name)}">删除</button>
+          </div>`).join('')}`).join('')}`;
+      $('[data-close]', dialog).onclick = () => dialog.close();
+      const form = $('#channel-form', dialog);
+      form.elements.kind.value = kind;
+      const saveList = (next, removed) => {
+        if (!saveChange(() => { Store.updateSettings('channels', next, removed); return true; })) return;
+        onChange(removed);
+        draw(form.elements.kind.value);
+      };
+      form.onsubmit = (event) => {
+        event.preventDefault();
+        const name = form.elements.channel.value.trim();
+        if (!name || list.some((item) => item.name === name)) { toast('请输入新的渠道名称'); return; }
+        saveList([...list, { name, kind: form.elements.kind.value }]);
+      };
+      $$('[data-index]', dialog).forEach((button) => button.onclick = () => {
+        const index = Number(button.dataset.index);
+        const item = list[index];
+        const direction = Number(button.dataset.direction);
+        if (!direction) {
+          if (confirm(`删除渠道“${item.name}”？关联客户会保留，认识渠道将清空。`)) {
+            saveList(list.filter((_, i) => i !== index), item.name);
+          }
+          return;
+        }
+        const indices = list.map((entry, i) => entry.kind === item.kind ? i : -1).filter((i) => i >= 0);
+        const other = indices[indices.indexOf(index) + direction];
+        if (other === undefined) return;
+        const next = [...list];
+        [next[index], next[other]] = [next[other], next[index]];
+        saveList(next);
+      });
+    }
+    draw('线上');
+    dialog.showModal();
   }
 
   // ---------- 新增 / 编辑客户 ----------
   function renderEdit(id) {
     const isNew = !id;
-    const c = isNew ? { status: '潜在', level: 'B', tags: [] } : Store.get(id);
+    const c = isNew ? { status: '线索', level: 'B', tags: [] } : Store.get(id);
     if (!c) { location.replace('#/'); return; }
     setTab(null);
     headerSub({
@@ -394,33 +734,73 @@
     const input = (name, label, type = 'text', ph = '') => `<div class="field"><label for="f-${name}">${label}</label>
       <input id="f-${name}" name="${name}" type="${type}" value="${esc(c[name] || '')}" placeholder="${ph}"
       ${type === 'tel' ? 'inputmode="tel"' : ''} ${type === 'email' ? 'inputmode="email" autocapitalize="off"' : ''}></div>`;
-    const chips = (name, label, opts) => `<div class="field"><span class="lbl">${label}</span>
-      <div class="chips" data-field="${name}">${opts.map((o) => `<button type="button" class="chip ${c[name] === o ? 'on' : ''}" data-v="${o}">${o}</button>`).join('')}</div></div>`;
+    const chips = (name, label, opts, chosen = c[name]) => `<div class="field"><span class="lbl">${label}</span>
+      <div class="chips" data-field="${name}">${opts.map((o) => `<button type="button" class="chip ${chosen === o ? 'on' : ''}" data-v="${o}">${o}</button>`).join('')}</div></div>`;
 
     view.innerHTML = `
       <form id="editForm">
-        <div class="sec-title">基本信息</div>
-        <div class="field"><label for="f-name">姓名</label><input id="f-name" name="name" required value="${esc(c.name || '')}" placeholder="必填"></div>
+        <div class="sec-title">基本</div>
+        <div class="field"><label for="f-name">称呼</label><input id="f-name" name="name" required value="${esc(c.name || '')}" placeholder="必填"></div>
+        ${input('birthday', '生日', 'date')}
+        ${input('age', '年龄（岁）', 'number')}
+        <p class="hint" id="birthday-info">填写生日可自动计算年龄和星座。</p>
+        <div class="sec-title">身材</div>
+        ${input('height', '身高 cm', 'number')}
+        ${input('weight', '体重 kg', 'number')}
+        ${chips('body', '体型', ['偏瘦', '匀称', '健身', '壮', '微胖', '熊'])}
+        ${chips('role', '角色', ['1', '0', '0.5', '偏1', '偏0', 'Side'])}
+        <div class="sec-title">来历</div>
+        ${input('hometown', '故乡')}
+        ${input('residence', '现居')}
+        ${input('occupation', '职业')}
         ${input('company', '公司')}
         ${input('title', '职位')}
+        <div class="sec-title">认识</div>
+        ${input('knownSince', '认识日期', 'date')}
+        <div class="field"><label for="f-channel">渠道</label><select id="f-channel" name="channel"></select>
+          <button class="link-btn" type="button" id="manage-channels">＋ 管理</button></div>
+        ${chips('status', '状态', STATUSES, statusOf(c.status))}
+        ${chips('level', '等级', LEVELS)}
         <div class="sec-title">联系方式</div>
         ${input('phone', '电话', 'tel')}
         ${input('wechat', '微信')}
         ${input('email', '邮箱', 'email')}
         ${input('address', '地址')}
         <div class="sec-title">分类</div>
-        ${chips('status', '状态', STATUSES)}
-        ${chips('level', '等级', LEVELS)}
-        ${input('source', '来源', 'text', '如：转介绍、展会、官网')}
         <div class="field"><label for="f-tags">标签</label><input id="f-tags" name="tags" value="${esc((c.tags || []).join('，'))}" placeholder="用逗号分隔"></div>
         <div class="field"><label for="f-next">下次跟进</label><input id="f-next" name="nextFollowUp" type="date" value="${esc(c.nextFollowUp || '')}"></div>
+        <div class="sec-title">偏好</div>
+        <div class="field"><label for="f-preferences">偏好</label><input id="f-preferences" name="preferences" value="${esc((c.preferences || []).join('，'))}" placeholder="用逗号分隔"></div>
         <div class="sec-title">备注</div>
         <div class="field top"><label for="f-notes">备注</label><textarea id="f-notes" name="notes" placeholder="客户背景、需求、偏好…">${esc(c.notes || '')}</textarea></div>
         <div class="pad"><button class="btn-lg" type="submit">保存</button></div>
         ${isNew ? '' : '<div class="pad"><button class="btn-lg danger" type="button" id="delBtn">删除客户</button></div>'}
-      </form>`;
+      </form><dialog id="v6-dialog"></dialog>`;
 
-    const picked = { status: c.status || '', level: c.level || '' };
+    const picked = { status: statusOf(c.status), level: c.level || '', body: c.body || '', role: c.role || '' };
+    const channel = $('#f-channel');
+    const fillChannels = (selected) => {
+      const names = [...new Set([...channels().map((item) => item.name), selected].filter(Boolean))];
+      channel.replaceChildren(new Option('未设置', ''), ...names.map((name) => new Option(name, name)));
+      channel.value = selected;
+    };
+    fillChannels(c.channel || c.source || '');
+    $('#manage-channels').onclick = () => openChannels((removed) => {
+      fillChannels(channel.value === removed ? '' : channel.value);
+    });
+    const birthday = $('#f-birthday');
+    birthday.max = today();
+    $('#f-knownSince').max = today();
+    for (const key of ['age', 'height', 'weight']) {
+      const number = $('#f-' + key);
+      number.min = key === 'age' ? '0' : '1';
+      number.step = key === 'age' ? '1' : '0.1';
+    }
+    const updateBirthday = () => {
+      $('#birthday-info').textContent = birthday.value ? birthdayLabel({ birthday: birthday.value }) : '填写生日可自动计算年龄和星座。';
+    };
+    birthday.onchange = updateBirthday;
+    updateBirthday();
     $$('[data-field]', view).forEach((g) => {
       $$('.chip', g).forEach((b) => b.onclick = () => {
         const on = !b.classList.contains('on');
@@ -436,15 +816,22 @@
       const fd = new FormData(form);
       const name = String(fd.get('name') || '').trim();
       if (!name) { toast('请填写姓名'); return; }
-      const next = { ...c };
-      for (const k of ['company', 'title', 'phone', 'wechat', 'email', 'address', 'source', 'nextFollowUp', 'notes']) {
+      const current = isNew ? c : Store.get(id);
+      if (!current) { toast('客户已删除'); location.replace('#/'); return; }
+      const next = { ...current };
+      for (const k of ['company', 'title', 'phone', 'wechat', 'email', 'address', 'nextFollowUp', 'notes', 'birthday', 'age', 'height', 'weight', 'hometown', 'residence', 'occupation', 'knownSince', 'channel']) {
         next[k] = String(fd.get(k) || '').trim();
       }
       next.name = name;
       next.status = picked.status;
       next.level = picked.level;
+      next.body = picked.body;
+      next.role = picked.role;
+      next.source = next.channel;
+      next.preferences = [...new Set(String(fd.get('preferences') || '').split(/[,，、]+/).map((value) => value.trim()).filter(Boolean))];
       next.tags = String(fd.get('tags') || '').split(/[,，、\s#]+/).map((s) => s.trim()).filter(Boolean);
-      const saved = Store.upsert(next);
+      const saved = saveChange(() => Store.upsert(next));
+      if (!saved) return;
       toast('已保存');
       location.replace(`#/c/${saved.id}`);
     };
@@ -452,7 +839,7 @@
     const del = $('#delBtn');
     if (del) del.onclick = () => {
       if (confirm(`确定删除客户“${c.name}”及其全部跟进记录？`)) {
-        Store.remove(id);
+        if (!saveChange(() => { Store.remove(id); return true; })) return;
         toast('已删除');
         location.replace('#/');
       }
@@ -479,7 +866,7 @@
     const all = Store.all();
     const month = today().slice(0, 7);
     const monthFollow = all.reduce((n, c) => n + (c.followUps || []).filter((f) => (f.date || '').startsWith(month)).length, 0);
-    const won = all.filter((c) => c.status === '已成交').length;
+    const won = all.filter((c) => statusOf(c.status) === '成交').length;
     const user = Auth.user();
     const signedIn = Auth.hasSession() && !Auth.needsRelogin();
     const s = Store.status();
@@ -593,19 +980,13 @@
     updateBadge();
   }
 
-  let lastRoute = location.hash;
   window.addEventListener('hashchange', () => {
-    // 进入另一位客户时，详情页默认显示“动态”
-    const a = (lastRoute.match(/^#\/c\/([^/]+)/) || [])[1];
-    const b = (location.hash.match(/^#\/c\/([^/]+)/) || [])[1];
-    if (a !== b) detailUi.tab = '动态';
-    lastRoute = location.hash;
     render();
     window.scrollTo(0, 0);
   });
 
   const isEditing = () =>
-    /^#\/(new|edit\/|c\/[^/]+\/follow)/.test(location.hash) ||
+    $('dialog[open]') || /^#\/(new|edit\/|c\/[^/]+\/follow)/.test(location.hash) ||
     (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && document.activeElement.id !== 'q');
 
   // 数据变化时：编辑中不重绘，避免打断输入

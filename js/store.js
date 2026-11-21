@@ -28,58 +28,61 @@ window.Store = (() => {
   const all = () => data.customers.filter((c) => !c.deleted);
   const get = (id) => data.customers.find((c) => c.id === id && !c.deleted);
 
-  function touch() {
+  function commit(next) {
+    // 先写本地数据，容量不足时保留内存中的旧版本。
+    localStorage.setItem(DATA_KEY, JSON.stringify(next));
+    data = next;
     meta.dirty = true;
     meta.seq = (meta.seq || 0) + 1;
-    persist();
-    emit();
+    try { localStorage.setItem(META_KEY, JSON.stringify(meta)); }
+    catch (e) { console.warn('无法保存同步状态', e); }
     scheduleSync();
+    emit();
   }
 
-  function upsert(c) {
+  function upsert(customer) {
     const t = now();
-    if (!c.id) {
-      c = { ...c, id: uid(), createdAt: t, followUps: c.followUps || [] };
-      data.customers.push(c);
-    } else {
-      const i = data.customers.findIndex((x) => x.id === c.id);
-      if (i >= 0) data.customers[i] = c; else data.customers.push(c);
-    }
-    c.updatedAt = t;
-    touch();
+    const c = customer.id
+      ? { ...customer, updatedAt: t }
+      : { ...customer, id: uid(), createdAt: t, updatedAt: t, followUps: customer.followUps || [] };
+    const customers = data.customers.some((x) => x.id === c.id)
+      ? data.customers.map((x) => x.id === c.id ? c : x)
+      : [...data.customers, c];
+    commit({ ...data, customers });
     return c;
   }
 
   function remove(id) {
-    const c = data.customers.find((x) => x.id === id);
-    if (!c) return;
-    // 保留“删除标记”，以便同步到其他设备
-    Object.keys(c).forEach((k) => { if (!['id', 'createdAt'].includes(k)) delete c[k]; });
-    c.deleted = true;
-    c.updatedAt = now();
-    touch();
+    const c = get(id);
+    if (c) upsert({ id, createdAt: c.createdAt, deleted: true });
   }
 
-  function addFollowUp(id, f) {
+  function addFollowUp(id, f, changes = {}) {
     const c = get(id);
     if (!c) return;
-    c.followUps = c.followUps || [];
-    c.followUps.unshift({ id: uid(), createdAt: now(), ...f });
-    c.followUps.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
-    upsert(c);
+    const followUps = [{ id: uid(), createdAt: now(), ...f }, ...(c.followUps || [])];
+    followUps.sort((a, b) => (b.date || '').localeCompare(a.date || '') ||
+      (b.time || '').localeCompare(a.time || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return upsert({ ...c, ...changes, followUps });
   }
 
   function removeFollowUp(id, fid) {
     const c = get(id);
-    if (!c) return;
-    c.followUps = (c.followUps || []).filter((f) => f.id !== fid);
-    upsert(c);
+    if (c) upsert({ ...c, followUps: (c.followUps || []).filter((f) => f.id !== fid) });
+  }
+
+  function updateSettings(key, value, removedChannel) {
+    const t = now();
+    const customers = key === 'channels' && removedChannel
+      ? data.customers.map((c) => (c.channel || c.source) === removedChannel
+        ? { ...c, channel: '', source: '', updatedAt: t } : c)
+      : data.customers;
+    commit({ ...data, customers, settings: { ...data.settings, [key]: { value, updatedAt: t } } });
   }
 
   function replaceAll(newData) {
     // 导入：与现有数据合并（较新的覆盖）
-    data = merge(data, newData);
-    touch();
+    commit(merge(data, newData));
   }
 
   // ---------- 合并 ----------
@@ -90,10 +93,17 @@ window.Store = (() => {
       const cur = map.get(c.id);
       if (!cur || (c.updatedAt || '') > (cur.updatedAt || '')) map.set(c.id, c);
     }
-    return { version: 1, customers: [...map.values()] };
+    const settings = { ...a.settings };
+    for (const [key, entry] of Object.entries(b.settings || {})) {
+      if (entry && (!settings[key] || entry.updatedAt > settings[key].updatedAt)) settings[key] = entry;
+    }
+    return { version: 1, customers: [...map.values()], settings };
   }
   const fingerprint = (d) =>
-    (d.customers || []).map((c) => c.id + '@' + c.updatedAt).sort().join('|');
+    JSON.stringify([
+      (d.customers || []).map((c) => [c.id, c.updatedAt]).sort(),
+      Object.entries(d.settings || {}).map(([key, entry]) => [key, entry?.updatedAt]).sort()
+    ]);
 
   // ---------- OneDrive ----------
   async function graph(method, url, token, { body, headers = {} } = {}) {
@@ -125,6 +135,7 @@ window.Store = (() => {
       const token = await Auth.getToken();
       if (!token) { setStatus('relogin', '登录已过期，请在“设置”中重新登录'); return; }
 
+      let completed = false;
       for (let attempt = 0; attempt < 3; attempt++) {
         const seqAtStart = meta.seq;
         // 1. 读取云端文件信息
@@ -140,13 +151,18 @@ window.Store = (() => {
           if (!dl.ok) throw new Error(`下载数据失败 (${dl.status})`);
           remote = await dl.json();
           const merged = merge(data, remote);
-          if (fingerprint(merged) !== fingerprint(data)) { data = merged; persist(); emit(); }
+          if (fingerprint(merged) !== fingerprint(data)) {
+            localStorage.setItem(DATA_KEY, JSON.stringify(merged));
+            data = merged;
+            emit();
+          }
         }
 
         // 3. 需要上传？
         const needPush = !item || meta.dirty || (remote && fingerprint(remote) !== fingerprint(data));
         if (!needPush) {
           meta.etag = item.eTag;
+          completed = true;
           break;
         }
         const headers = { 'Content-Type': 'application/json' };
@@ -160,9 +176,11 @@ window.Store = (() => {
         const saved = await put.json();
         meta.etag = saved.eTag;
         if (meta.seq === seqAtStart) meta.dirty = false;
-        await dailyBackup(token);
+        completed = true;
         break;
       }
+      if (!completed) throw new Error('OneDrive 数据正在变化，请稍后重试同步');
+      await dailyBackup(token);
       meta.lastSync = now();
       persist();
       setStatus('ok', '已同步');
@@ -204,7 +222,8 @@ window.Store = (() => {
   return {
     all, get, upsert, remove, addFollowUp, removeFollowUp, replaceAll, resetLocal,
     sync, scheduleSync,
-    exportData: () => ({ version: 1, exportedAt: now(), customers: all() }),
+    exportData: () => ({ version: 1, exportedAt: now(), customers: all(), settings: data.settings }),
+    settings: (key) => data.settings?.[key]?.value, updateSettings,
     status: () => status,
     meta: () => meta,
     subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn); }

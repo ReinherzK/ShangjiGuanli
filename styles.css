@@ -1,4 +1,4 @@
-/* 设计：墨绿 + 红土橙；标题衬线体，正文 Open Sans；小圆角（原型 v5） */
+/* 设计：墨绿 + 红土橙；标题衬线体，正文 Open Sans；小圆角（原型 v6） */
 :root {
   --green: #00503C;
   --green-deep: #033629;
@@ -221,3 +221,55 @@ body.sub .tabbar { display: none; }
   max-width: calc(100% - 32px); padding: 10px 16px; border-radius: var(--radius);
   background: rgba(36, 36, 36, .94); color: #FFFFFF; font-size: 14px; z-index: 50; text-align: center;
 }
+/* ---------- 原型 v6：详情、动态和资料管理 ---------- */
+.dot.s-线索 { background: #B2B0AD; }
+.dot.s-商机, .dot.s-成交 { background: var(--green-mid); }
+.dot.s-面访, .dot.s-转化 { background: var(--clay-light); }
+.dot.s-建联 { background: #597B9E; }
+.dot.s-流失 { background: var(--clay); }
+.avatar img, .photo-tile img, .draft-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.profile-avatar { padding: 0; border: 0; background: none; }
+.seg { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.profile-notes { margin: 0; padding: 8px 16px 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px 4px; }
+.section-head h3 { margin: 0; color: var(--green); font: 600 17px var(--serif); }
+.section-head small { margin-left: 4px; color: var(--muted); font: 13px var(--sans); }
+.link-btn { min-height: 40px; padding: 0 6px; border: 0; background: transparent; color: var(--green); font-size: 14px; font-weight: 600; }
+.remove-link { color: var(--clay-text); }
+.v6-tags { padding: 0 16px 10px; }
+.activity-date { flex: none; width: 58px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.activity-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.activity-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: var(--radius); }
+.photo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 8px 16px 18px; }
+.photo-tile, .photo-add, .draft-photo { aspect-ratio: 1; border-radius: var(--radius); overflow: hidden; }
+.photo-tile { padding: 0; border: 0; background: var(--surface); }
+.photo-add { display: grid; position: relative; place-items: center; border: 1px dashed var(--faint); color: var(--muted); font-size: 13px; }
+.photo-add:focus-within { outline: 2px solid var(--green); }
+.photo-add input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.compose-photos, #compose-preview { display: flex; flex-wrap: wrap; gap: 6px; }
+.compose-photos { padding: 0 16px 14px; }
+.compose-photos .photo-add, .draft-photo { width: 72px; }
+.draft-photo { position: relative; }
+.draft-photo button { position: absolute; top: 0; right: 0; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #242424cc; color: #fff; }
+.compose-date, .channel-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.compose-date input, .v6-input, .setting-row input, select { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.compose-date input { flex: 1; }
+.csec .v6-input { width: 100%; }
+.calendar-nav, .calendar-legend { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 16px; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; padding: 6px 16px; text-align: center; font-size: 13px; }
+.calendar-day { min-height: 36px; aspect-ratio: 1; padding: 0; border: 0; border-radius: var(--radius); }
+.calendar-day.calendar-today { box-shadow: inset 0 0 0 1px #242424; font-weight: 700; }
+.calendar-day[aria-pressed="true"] { outline: 2px solid var(--clay); outline-offset: 1px; }
+.calendar-legend { justify-content: flex-end; color: var(--muted); font-size: 12px; }
+.calendar-legend i, .setting-row i { display: inline-block; width: 15px; height: 15px; border-radius: 3px; border: 1px solid var(--border); }
+dialog { width: min(calc(100% - 24px), 480px); max-height: 85vh; padding: 10px 0; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--bg); }
+dialog::backdrop { background: #0008; }
+#photo-dialog > img { display: block; max-width: 100%; max-height: 65vh; margin: auto; }
+#photo-dialog .btn-row { justify-content: center; padding: 0 10px; }
+.setting-row { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 16px; border-bottom: 1px solid var(--line); }
+label.setting-row { justify-content: space-between; }
+.setting-row input { width: 82px; }
+.channel-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.channel-add { padding: 6px 16px; }
+.channel-add input { flex: 1; }
+#f-channel { flex: 1; }
